@@ -7,11 +7,19 @@ import seaborn as sns
 from IPython.display import display
 np.random.seed(39)
 
+SCORE_DOMAINS = ['Global Cognition', 'Language', 'Visuospatial Functioning', 'Memory',\
+                 'Information Processing Speed', 'Executive Functioning']
 
-SCORE_DOMAINS = ['global cognition', 'language', 'visuospatial functioning', 'memory',\
-                 'information processing speed', 'executive functioning']
+def create_score_df(metric, score_type, fold, score):
+    
+    df = pd.DataFrame()
+    df["Domains"] = SCORE_DOMAINS
+    df["Metric"] = metric
+    df["Score type"] = score_type
+    df["Fold"] = fold
+    df["Score"] = score
 
-SCORE_FOLDS = ['Fold-1', 'Fold-2', 'Fold-3', 'Fold-4', 'Fold-5']                 
+    return df
 
 def perform_regression(X, y, estimator, my_grid, random_search_cv=False):
     kfold_outer = KFold(n_splits=5)
@@ -27,6 +35,8 @@ def perform_regression(X, y, estimator, my_grid, random_search_cv=False):
     # MSE
     train_mse = []
     test_mse = []
+    
+    scores_df = pd.DataFrame()
     
     i=1
 
@@ -50,71 +60,47 @@ def perform_regression(X, y, estimator, my_grid, random_search_cv=False):
         y_predicted_test = gs_est.predict(X_test)
         
         train_rsq_k = r2_score(y_train, y_predicted_train, multioutput='raw_values')
-        test_rsq_k = r2_score(y_test, y_predicted_test, multioutput='raw_values')
-        
-        train_rsq.append(train_rsq_k)
-        test_rsq.append(test_rsq_k)
+        test_rsq_k = r2_score(y_test, y_predicted_test, multioutput='raw_values')        
         
         train_mae_k = mean_absolute_error(y_train, y_predicted_train, multioutput='raw_values')
         test_mae_k = mean_absolute_error(y_test, y_predicted_test, multioutput='raw_values')
         
-        train_mae.append(train_mae_k)
-        test_mae.append(test_mae_k)
-        
         train_mse_k = mean_squared_error(y_train, y_predicted_train, multioutput='raw_values')
         test_mse_k = mean_squared_error(y_test, y_predicted_test, multioutput='raw_values')
         
-        train_mse.append(train_mse_k)
-        test_mse.append(test_mse_k)
+        
+        scores_df = pd.concat([scores_df, create_score_df("R2", "In-sample", i, train_rsq_k)], ignore_index=True)
+        scores_df = pd.concat([scores_df, create_score_df("R2", "Out-of-sample", i, test_rsq_k)], ignore_index=True)
+        
+        scores_df = pd.concat([scores_df, create_score_df("MAE", "In-sample", i, train_mae_k)], ignore_index=True)
+        scores_df = pd.concat([scores_df, create_score_df("MAE", "Out-of-sample", i, test_mae_k)], ignore_index=True)
+        
+        scores_df = pd.concat([scores_df, create_score_df("MSE", "In-sample", i, train_mse_k)], ignore_index=True)
+        scores_df = pd.concat([scores_df, create_score_df("MSE", "Out-of-sample", i, test_mse_k)], ignore_index=True)
         
         print('\nFold-'+str(i) + ': Best params:', gs_est.best_params_)     
         i+=1
-                 
-    train_rsq_df = pd.DataFrame(train_rsq, SCORE_FOLDS, SCORE_DOMAINS).transpose()
-    train_rsq_df['mean'] = train_rsq_df.mean(axis=1)
     
-    test_rsq_df = pd.DataFrame(test_rsq, SCORE_FOLDS, SCORE_DOMAINS).transpose()
-    test_rsq_df['mean'] = test_rsq_df.mean(axis=1)
-    
-    train_mae_df = pd.DataFrame(train_mae, SCORE_FOLDS, SCORE_DOMAINS).transpose()
-    train_mae_df['mean'] = train_mae_df.mean(axis=1)
-    
-    test_mae_df = pd.DataFrame(test_mae, SCORE_FOLDS, SCORE_DOMAINS).transpose()
-    test_mae_df['mean'] = test_mae_df.mean(axis=1)
-    
-    train_mse_df = pd.DataFrame(train_mse, SCORE_FOLDS, SCORE_DOMAINS).transpose()
-    train_mse_df['mean'] = train_mse_df.mean(axis=1)
-    
-    test_mse_df = pd.DataFrame(test_mse, SCORE_FOLDS, SCORE_DOMAINS).transpose()
-    test_mse_df['mean'] = test_mse_df.mean(axis=1)
-    
-    return ((train_rsq_df, test_rsq_df), (train_mae_df, test_mae_df), (train_mse_df, test_mse_df))
+    return scores_df
 
-def display_results(score_train, score_test, metric, plot_only=True):
 
-    if not plot_only:
+def plot_scores(score_df, score_type, metric):
+    
+    plt.figure(figsize=(15, 10))
 
-        print('\n' + metric + ' (in-sample):')
-        display(score_train)
-        print('\n' + metric + ' (out-of-sample):')
-        display(score_test)
-    
-    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10, 6))
-    
-    sns.barplot(data=score_train.transpose().drop(['mean'], axis=0), ci="sd", capsize=.2, ax=ax[0])
-    ax[0].set_xticklabels(ax[0].get_xticklabels(), rotation=45, ha="right")
-    ax[0].set_title(metric + ' (in-sample):')
-    ax[0].set_ylabel(metric)
-    
-    sns.barplot(data=score_test.transpose().drop(['mean'], axis=0), ci="sd", capsize=.2, ax=ax[1])
-    ax[1].set_xticklabels(ax[1].get_xticklabels(), rotation=45, ha="right")
-    ax[1].set_title(metric + ' (out-of-sample):')
-    ax[1].set_ylabel(metric)
-    
-    fig.tight_layout()
+    data = score_df[(score_df["Score type"]==score_type) & (score_df["Metric"]==metric)]
+    sns.barplot(x="Domains", y="Score", hue="Model", data=data, ci="sd", capsize=.2)
+    plt.axhline(0, color="black")
+    plt.title(metric + " (" + score_type + ")", fontsize=30)
 
-def display_all_results(scores, plot_only=True):
+    plt.tight_layout()
+    plt.show()
 
-    display_results(scores[0][0], scores[0][1], "R^2", plot_only)
-    display_results(scores[1][0], scores[1][1], "MAE", plot_only)
-    display_results(scores[2][0], scores[2][1], "MSE", plot_only)
+def plot_all_scores(score_df):
+    plot_scores(score_df, "Out-of-sample", "R2")
+    plot_scores(score_df, "Out-of-sample", "MAE")
+    plot_scores(score_df, "Out-of-sample", "MSE")
+    plot_scores(score_df, "In-sample", "R2")
+    plot_scores(score_df, "In-sample", "MAE")
+    plot_scores(score_df, "In-sample", "MSE")
+    
