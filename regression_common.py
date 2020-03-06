@@ -21,7 +21,7 @@ def create_score_df(metric, score_type, fold, score):
 
     return df
 
-def perform_regression(X, y, estimator, my_grid, random_search_cv=False):
+def perform_regression(X, y, estimator, my_grid, random_search_cv=False, nn=False, pca_fold=False):
     kfold_outer = KFold(n_splits=5)
     
     # R^2 
@@ -42,11 +42,32 @@ def perform_regression(X, y, estimator, my_grid, random_search_cv=False):
 
     for train, test in kfold_outer.split(X):
         X_train = X[train]
-        y_train = y[train]
         X_test = X[test]
-        y_test = y[test]
 
         kfold_inner = KFold(n_splits=5)
+        
+        
+        if pca_fold:
+            
+            if not os.path.isfile('../data/pca_fold/pc_100_train_cv_' + str(i) + '.npy'):
+                pca = PCA(n_components=100)
+                X_train = pca.fit_transform(X_train)
+                X_test = pca.transform(X_test)
+                np.save('../data/pca_fold/pc_100_train_cv_' + str(i) + '.npy', X_train)
+                np.save('../data/pca_fold/pc_100_test_cv_' + str(i) + '.npy', X_test)
+                np.save('../data/pca_fold/pc_100_train_index_cv_' + str(i) + '.npy', train)
+                np.save('../data/pca_fold/pc_100_test_index_cv_' + str(i) + '.npy', test)
+                
+            else:
+                X_train = np.load('../data/pca_fold/pc_100_train_cv_' + str(i) + '.npy')
+                X_test = np.load('../data/pca_fold/pc_100_test_cv_' + str(i) + '.npy')
+                train = np.load('../data/pca_fold/pc_100_train_index_cv_' + str(i) + '.npy')
+                test = np.load('../data/pca_fold/pc_100_test_index_cv_' + str(i) + '.npy')
+            
+            
+        y_train = y[train]
+        y_test = y[test]    
+            
         
         if random_search_cv:
             gs_est = RandomizedSearchCV(estimator=estimator, param_distributions=my_grid, n_jobs=4, \
@@ -54,7 +75,10 @@ def perform_regression(X, y, estimator, my_grid, random_search_cv=False):
         else:
             gs_est = GridSearchCV(estimator=estimator, param_grid=my_grid, n_jobs=4, cv=kfold_inner)
         
-        gs_est.fit(X_train, y_train)
+        if nn==True:
+            gs_est.fit(X_train, y_train, validation_data=(X_test, y_test))
+        else: 
+            gs_est.fit(X_train, y_train)
 
         y_predicted_train = gs_est.predict(X_train)
         y_predicted_test = gs_est.predict(X_test)
@@ -91,6 +115,7 @@ def plot_scores(score_df, score_type, metric):
     data = score_df[(score_df["Score type"]==score_type) & (score_df["Metric"]==metric)]
     sns.barplot(x="Domains", y="Score", hue="Model", data=data, ci="sd", capsize=.2)
     plt.axhline(0, color="black")
+    plt.ylim(-0.2,)
     plt.title(metric + " (" + score_type + ")", fontsize=30)
 
     plt.tight_layout()
