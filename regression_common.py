@@ -116,9 +116,23 @@ def plot_scores(score_df, score_type, metric):
     data = score_df[(score_df["Score type"]==score_type) & (score_df["Metric"]==metric)]
     sns.barplot(x="Domains", y="Score", hue="Model", data=data, ci="sd", capsize=.2)
     plt.axhline(0, color="black")
-    plt.ylim(-0.2,)
+    
+    if score_type == "Out-of-sample":
+        if metric == "R2":
+            plt.ylim(-0.2, 0.2)
+        elif metric == "MAE":
+            plt.ylim(0.0, 1.1)
+        elif metric == "MSE":
+            plt.ylim(0.0, 1.8)
+    elif score_type == "In-sample":
+        if metric == "R2":
+            plt.ylim(-0.1, 1.1)
+        elif metric == "MAE":
+            plt.ylim(0.0, 1.0)
+        elif metric == "MSE":
+            plt.ylim(0.0, 1.4)
+    
     plt.title(metric + " (" + score_type + ")", fontsize=30)
-
     plt.tight_layout()
     plt.show()
 
