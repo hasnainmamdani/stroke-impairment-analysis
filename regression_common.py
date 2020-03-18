@@ -3,6 +3,7 @@ import pandas as pd
 from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
 import seaborn as sns
 import os
 np.random.seed(39)
@@ -23,8 +24,8 @@ def create_score_df(metric, score_type, fold, score):
     return df
 
 
-def perform_regression(X, y, estimator, my_grid, random_search_cv=False, random_iter=20, pca_fold=False,
-                       pca_dir=None, nn=False, callbacks=None):
+def perform_regression(X, y, estimator, my_grid, random_search_cv=False, n_jobs=-1, random_iter=20, pca_fold=False,
+                       pca_dir=None, nn=False, callbacks=None, print_r2=False):
 
     kfold_outer = KFold(n_splits=5)
 
@@ -59,10 +60,10 @@ def perform_regression(X, y, estimator, my_grid, random_search_cv=False, random_
         y_test = y[test]
 
         if random_search_cv:
-            gs_est = RandomizedSearchCV(estimator=estimator, param_distributions=my_grid, n_jobs=4,
+            gs_est = RandomizedSearchCV(estimator=estimator, param_distributions=my_grid, n_jobs=n_jobs,
                                         cv=kfold_inner, random_state=39, n_iter=random_iter)
         else:
-            gs_est = GridSearchCV(estimator=estimator, param_grid=my_grid, n_jobs=4, \
+            gs_est = GridSearchCV(estimator=estimator, param_grid=my_grid, n_jobs=n_jobs, \
                                   cv=kfold_inner)
 
         if nn:
@@ -93,12 +94,16 @@ def perform_regression(X, y, estimator, my_grid, random_search_cv=False, random_
         scores_df = pd.concat([scores_df, create_score_df("MSE", "Out-of-sample", i, test_mse_k)], ignore_index=True)
 
         print('Fold-'+str(i) + ': Best params:', gs_est.best_params_)
+        if print_r2:
+            print(train_rsq_k)
+            print(test_rsq_k)
+
         i += 1
 
     return scores_df
 
 
-def plot_scores(score_df, score_type, metric):
+def plot_scores(score_df, score_type, metric, hue_order=None):
 
     plt.figure(figsize=(15, 10))
 
@@ -108,7 +113,8 @@ def plot_scores(score_df, score_type, metric):
     palette = {"Ridge":"C0", "Multitask Ridge": "C0", "PLS": "C1", "Random Forest": "C2", "CCA": "C3", "Neural Network": "C4",
                "SVR": "C5", "XGBoost": "C6"}
 
-    sns.barplot(x="Domains", y="Score", hue="Model", data=data, ci="sd", capsize=.2, palette=palette)
+    sns.barplot(x="Domains", y="Score", hue="Model", hue_order=hue_order,
+                data=data, ci="sd", capsize=.2, palette=palette)
     plt.axhline(0, color="black")
 
     if score_type == "Out-of-sample":
@@ -131,10 +137,11 @@ def plot_scores(score_df, score_type, metric):
     plt.show()
 
 
-def plot_all_scores(score_df):
-    plot_scores(score_df, "Out-of-sample", "R2")
-    plot_scores(score_df, "Out-of-sample", "MAE")
-    plot_scores(score_df, "Out-of-sample", "MSE")
-    plot_scores(score_df, "In-sample", "R2")
-    plot_scores(score_df, "In-sample", "MAE")
-    plot_scores(score_df, "In-sample", "MSE")
+def plot_all_scores(score_df, hue_order=None):
+    plot_scores(score_df, "Out-of-sample", "R2", hue_order=hue_order)
+    plot_scores(score_df, "Out-of-sample", "MAE", hue_order=hue_order)
+    plot_scores(score_df, "Out-of-sample", "MSE", hue_order=hue_order)
+    plot_scores(score_df, "In-sample", "R2", hue_order=hue_order)
+    plot_scores(score_df, "In-sample", "MAE", hue_order=hue_order)
+    plot_scores(score_df, "In-sample", "MSE", hue_order=hue_order)
+
