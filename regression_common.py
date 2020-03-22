@@ -111,7 +111,7 @@ def plot_scores(score_df, score_type, metric, hue_order=None):
 
     # to have consistent colors between analyses
     palette = {"Ridge":"C0", "Multitask Ridge": "C0", "PLS": "C1", "Random Forest": "C2", "CCA": "C3", "Neural Network": "C4",
-               "SVR": "C5", "XGBoost": "C6"}
+               "Neural Network (Linear)": "C5", "SVR": "C6", "XGBoost": "C7"}
 
     sns.barplot(x="Domains", y="Score", hue="Model", hue_order=hue_order,
                 data=data, ci="sd", capsize=.2, palette=palette)
@@ -133,6 +133,7 @@ def plot_scores(score_df, score_type, metric, hue_order=None):
             plt.ylim(0.0, 1.4)
 
     plt.title(metric + " (" + score_type + ")", fontsize=30)
+    plt.ylabel("Score (Mean and Standard Error across 5 CV folds)")
     plt.tight_layout()
     plt.show()
 
