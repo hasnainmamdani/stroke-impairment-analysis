@@ -127,7 +127,6 @@ def plot_scores(score_df, score_type, hue_order=None):
         ax.axhline(0.5, color="black")
 
     g.fig.suptitle("Classification results: " + score_type, y=1.08, fontsize=30)
-    g.savefig('sdas')
 
 
 def plot_all_scores(score_df, hue_order=None):
