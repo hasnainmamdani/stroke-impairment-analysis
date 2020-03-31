@@ -46,12 +46,13 @@ def fit_classifier(X, y, estimator, my_grid, model_name, percentile, i_domain, r
 
         y_predicted_train = gs_est.predict(X_train)
         y_predicted_test = gs_est.predict(X_test)
-
         train_acc_k = accuracy_score(y_train, y_predicted_train)
         test_acc_k = accuracy_score(y_test, y_predicted_test)
 
-        train_auc_k = roc_auc_score(y_train, y_predicted_train)
-        test_auc_k = roc_auc_score(y_test, y_predicted_test)
+        y_predicted_prob_train = gs_est.predict_proba(X_train)
+        y_predicted_prob_test = gs_est.predict_proba(X_test)
+        train_auc_k = roc_auc_score(y_train, y_predicted_prob_train[:, 1])
+        test_auc_k = roc_auc_score(y_test, y_predicted_prob_test[:, 1])
 
         scores.append(["Accuracy", "In-sample", i_fold, train_acc_k])
         scores.append(["Accuracy", "Out-of-sample", i_fold, test_acc_k])
@@ -120,7 +121,7 @@ def plot_scores(score_df, score_type, hue_order=None):
     g = sns.catplot(x="Domain", y="Score", hue="Model", col="% Data", row="Metric",
                     data=data, ci="sd", kind="bar", palette=palette, hue_order=hue_order)
 
-    g.set_axis_labels("", "Score (Mean and Standard Error across 5 CV folds")
+    g.set_axis_labels("", "Score (Mean and Standard Deviation across 5 CV folds")
 
     for i, ax in enumerate(g.fig.axes):
         ax.set_xticklabels(ax.get_xticklabels(), rotation=65)
