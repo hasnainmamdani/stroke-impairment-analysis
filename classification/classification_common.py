@@ -3,8 +3,6 @@ import pandas as pd
 from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
 from sklearn.metrics import accuracy_score, roc_auc_score
 import math
-
-
 import seaborn as sns
 np.random.seed(39)
 
@@ -13,7 +11,7 @@ SCORE_DOMAINS = ['Global Cognition', 'Language', 'Visuospatial Functioning', 'Me
 
 
 def fit_classifier(X, y, estimator, my_grid, model_name, percentile, i_domain, random_search_cv=False, n_jobs=-1, random_iter=20,
-                   nn=False, callbacks=None):
+                   nn=False, callbacks=None, print_best_params=True):
 
     kfold_outer = KFold(n_splits=5, shuffle=True, random_state=39)
 
@@ -61,7 +59,8 @@ def fit_classifier(X, y, estimator, my_grid, model_name, percentile, i_domain, r
 
         best_params.append([i_fold, gs_est.best_params_])
 
-        print('Fold-'+str(i_fold) + ': Best params:', gs_est.best_params_)
+        if print_best_params:
+            print('Fold-'+str(i_fold) + ': Best params:', gs_est.best_params_)
 
         i_fold += 1
 
@@ -78,16 +77,14 @@ def fit_classifier(X, y, estimator, my_grid, model_name, percentile, i_domain, r
     return scores_df, best_params_df, gs_est
 
 
-def run_classification(X, Y, Y_sort_idx, estimator, grid, model_name, random_search_cv=False):
+def run_classification(X, Y_sort_idx, estimator, grid, model_name, random_search_cv=False, print_best_params=True):
 
     scores_df_all = pd.DataFrame()
     best_params_df_all = pd.DataFrame()
 
     percentiles = [.50, .30, .20, .10]
 
-    for i_domain in range(Y.shape[1]):
-
-        y = Y[:, i_domain]
+    for i_domain in range(Y_sort_idx.shape[1]):
 
         print('\n' + SCORE_DOMAINS[i_domain] + '\n')
 
@@ -104,7 +101,7 @@ def run_classification(X, Y, Y_sort_idx, estimator, grid, model_name, random_sea
             print("Data % used: " + str(p*2*100) + "%")
 
             scores_df, best_param_df, est = fit_classifier(X_new, y_new, estimator, grid, model_name, p*2*100, i_domain,
-                                                           random_search_cv=random_search_cv)
+                                                           random_search_cv=random_search_cv, print_best_params=print_best_params)
 
             scores_df_all = pd.concat([scores_df_all, scores_df], ignore_index=True)
             best_params_df_all = pd.concat([best_params_df_all, best_param_df], ignore_index=True)
@@ -121,13 +118,18 @@ def plot_scores(score_df, score_type, hue_order=None):
     g = sns.catplot(x="Domain", y="Score", hue="Model", col="% Data", row="Metric",
                     data=data, ci="sd", kind="bar", palette=palette, hue_order=hue_order)
 
-    g.set_axis_labels("", "Score (Mean and Standard Deviation across 5 CV folds")
+    g.set_axis_labels("", "Score (Mean and Standard Deviation across 5 CV folds)")
 
     for i, ax in enumerate(g.fig.axes):
         ax.set_xticklabels(ax.get_xticklabels(), rotation=65)
         ax.axhline(0.5, color="black")
 
     g.fig.suptitle("Classification results: " + score_type, y=1.08, fontsize=30)
+
+    if score_type == "Out-of-sample":
+        g.set(ylim=(0, 0.85))
+    if score_type == "In-sample":
+        g.set(ylim=(0, 1.0))
 
 
 def plot_all_scores(score_df, hue_order=None):
