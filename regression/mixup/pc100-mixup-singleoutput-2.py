@@ -61,6 +61,17 @@ def get_binary_imgs(data_dir):
     return imgs
 
 
+def log_and_zscore(data):
+    log_data = np.log(1 + data)
+    scaler = StandardScaler()
+    return scaler.fit_transform(log_data)
+
+
+def get_atlas_lesion_load_matrix(data_dir):
+    # load lesion load matrix
+    return np.load(data_dir + 'lesions_load_matrix_absolute.npy')
+
+
 def get_patient_scores(data_dir):
     patient_df = pd.read_hdf(data_dir + 'patients.h5', 'p')
     scaler_Y = StandardScaler()
@@ -169,7 +180,7 @@ def get_extremes(X, y, p):
 def run_regression_single_output(X, Y, estimator, grid, model_name, random_search_cv=False, n_jobs=-1,
                                  random_iter=20, nn=False, callbacks=None, print_best_params=True,
                                  mixup=False, mixup_alpha=0.1, mixup_mul_factor=5, use_extreme_all_perc=None,
-                                 use_extreme_train_perc=None, score_insample_orig=True):
+                                 use_extreme_train_perc=None, log_X=False, zscore_X=False, score_insample_orig=True):
 
     scores = []
     best_params = []
@@ -203,6 +214,7 @@ def run_regression_single_output(X, Y, estimator, grid, model_name, random_searc
 
             X_train_upd = np.copy(X_train)
             y_train_upd = np.copy(y_train)
+            X_test_upd = X_test
 
             if use_extreme_train_perc is not None:  # take only top/bottom p% and truncate the middle
                 X_train_tmp, y_train_tmp = get_extremes(X_train_upd, y_train_upd, use_extreme_train_perc)  # two-step to avoid internal bugs
@@ -220,6 +232,19 @@ def run_regression_single_output(X, Y, estimator, grid, model_name, random_searc
             # np.save("test/y_train_"+str(i_fold)+"_"+str(i_domain), y_train)
             # np.save("test/y_train_updated_"+str(i_fold)+"_"+str(i_domain), y_train_upd)
 
+            if log_X:
+                X_train_tmp = np.log(1 + X_train_upd)
+                X_train_upd = X_train_tmp
+                X_test_tmp = np.log(1 + X_test_upd)
+                X_test_upd = X_test_tmp
+
+            if zscore_X:
+                scaler = StandardScaler()
+                X_train_tmp = scaler.fit_transform(X_train_upd)
+                X_train_upd = X_train_tmp
+                X_test_tmp = scaler.transform(X_test_upd)
+                X_test_upd = X_test_tmp
+
             kfold_inner = KFold(n_splits=5, shuffle=True, random_state=31)
 
             if random_search_cv:
@@ -236,12 +261,19 @@ def run_regression_single_output(X, Y, estimator, grid, model_name, random_searc
             else:
                 est_cv.fit(X_train_upd, y_train_upd)
 
-            if score_insample_orig and (use_extreme_train_perc is not None or mixup):
-                scores_fold = calculate_regression_metrics(est_cv, X_train_upd, X_test, y_train_upd, y_test, model_name, i_fold,
+            if score_insample_orig:
+                if log_X:
+                    X_train_tmp = np.log(1 + X_train)
+                    X_train = X_train_tmp
+                if zscore_X:
+                    X_train_tmp = scaler.transform(X_train)
+                    X_train = X_train_tmp
+
+                scores_fold = calculate_regression_metrics(est_cv, X_train_upd, X_test_upd, y_train_upd, y_test, model_name, i_fold,
                                                            SCORE_DOMAINS[i_domain], score_insample_orig, X_train, y_train)
 
             else:
-                scores_fold = calculate_regression_metrics(est_cv, X_train_upd, X_test, y_train_upd, y_test, model_name, i_fold,
+                scores_fold = calculate_regression_metrics(est_cv, X_train_upd, X_test_upd, y_train_upd, y_test, model_name, i_fold,
                                                            SCORE_DOMAINS[i_domain])
 
             scores.extend(scores_fold)
@@ -267,13 +299,6 @@ def run_regression_single_output(X, Y, estimator, grid, model_name, random_searc
         best_params_df.insert(0, "alpha", "No mixup")
         best_params_df.insert(0, "Data mul factor", "No mixup")
 
-    if use_extreme_all_perc is not None:
-        scores_df.insert(0, "% Data", use_extreme_all_perc*2*100)
-        best_params_df.insert(0, "% Data", use_extreme_all_perc*2*100)
-    else:
-        scores_df.insert(0, "% Data", 100.0)
-        best_params_df.insert(0, "% Data", 100.0)
-
     if use_extreme_train_perc is not None:
         scores_df.insert(0, "% Data (train)", use_extreme_train_perc*2*100)
         best_params_df.insert(0, "% Data (train)", use_extreme_train_perc*2*100)
@@ -281,11 +306,18 @@ def run_regression_single_output(X, Y, estimator, grid, model_name, random_searc
         scores_df.insert(0, "% Data (train)", 100.0)
         best_params_df.insert(0, "% Data (train)", 100.0)
 
+    if use_extreme_all_perc is not None:
+        scores_df.insert(0, "% Data", use_extreme_all_perc*2*100)
+        best_params_df.insert(0, "% Data", use_extreme_all_perc*2*100)
+    else:
+        scores_df.insert(0, "% Data", 100.0)
+        best_params_df.insert(0, "% Data", 100.0)
+
     return scores_df, best_params_df
 
 
 def ridge(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extreme_all_perc=None, use_extreme_train_perc=None,
-          score_insample_orig=True):
+          log_X=False, zscore_X=False, score_insample_orig=True):
 
     estimator = Ridge()
 
@@ -294,13 +326,13 @@ def ridge(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extreme_all_
         if use_extreme_train_perc is None and use_extreme_all_perc is None:
             alpha = np.linspace(1, 5001, 251)
         elif use_extreme_train_perc == 0.1 or use_extreme_all_perc == 0.1:
-            alpha = np.linspace(0.01, 5.01, 251)
+            alpha = np.concatenate((np.linspace(0.001, 1, 250), np.linspace(1.01, 5, 100)))
         elif use_extreme_train_perc == 0.2 or use_extreme_all_perc == 0.2:
-            alpha = np.linspace(1, 250, 250)
+            alpha = np.concatenate((np.linspace(0.01, 1, 100), np.linspace(1, 250, 250)))
         elif use_extreme_train_perc == 0.3 or use_extreme_all_perc == 0.3:
-            alpha = np.linspace(1, 1001, 251)
+            alpha = np.linspace(1, 1000, 350)
         else:
-            alpha = np.linspace(1, 1501, 251)
+            alpha = np.linspace(1, 1500, 350)
 
     else:
         if use_extreme_train_perc is None and use_extreme_all_perc is None:
@@ -313,11 +345,11 @@ def ridge(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extreme_all_
 
     return run_regression_single_output(X, Y, estimator, grid, "Ridge", mixup=mixup,
             mixup_alpha=mixup_alpha, mixup_mul_factor=mixup_mul_factor, use_extreme_all_perc=use_extreme_all_perc,
-            use_extreme_train_perc=use_extreme_train_perc, score_insample_orig=score_insample_orig)
+            use_extreme_train_perc=use_extreme_train_perc, log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
 
 def svr_rbf(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extreme_all_perc=None, use_extreme_train_perc=None,
-            score_insample_orig=True):
+            log_X=False, zscore_X=False, score_insample_orig=True):
 
     estimator = SVR(kernel='rbf')
     grid = {"C": np.logspace(-1, 6, 8),
@@ -325,11 +357,11 @@ def svr_rbf(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extreme_al
 
     return run_regression_single_output(X, Y, estimator, grid, "SVR-RBF", mixup=mixup,
             mixup_alpha=mixup_alpha, mixup_mul_factor=mixup_mul_factor, use_extreme_all_perc=use_extreme_all_perc,
-            use_extreme_train_perc=use_extreme_train_perc, score_insample_orig=score_insample_orig)
+            use_extreme_train_perc=use_extreme_train_perc, log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
 
 def random_forest(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extreme_all_perc=None,
-                  use_extreme_train_perc=None, score_insample_orig=True):
+                  use_extreme_train_perc=None, log_X=False, zscore_X=False, score_insample_orig=True):
 
     estimator = RandomForestRegressor(random_state=39)
 
@@ -350,11 +382,15 @@ def random_forest(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extr
     return run_regression_single_output(X, Y, estimator, grid, "Random Forest", random_search_cv=True, random_iter=16,
             mixup=mixup, mixup_alpha=mixup_alpha, mixup_mul_factor=mixup_mul_factor,
             use_extreme_all_perc=use_extreme_all_perc, use_extreme_train_perc=use_extreme_train_perc,
-            score_insample_orig=score_insample_orig)
+            log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
 
 def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=True, result_dir="", plot_scores=False,
-                   use_extreme_all_perc=None, use_extreme_train_perc=None, score_insample_orig=True):
+                   use_extreme_all_perc=None, use_extreme_train_perc=None, log_X=False, zscore_X=False, score_insample_orig=True):
+
+    print("use_extreme_all_perc=", use_extreme_all_perc, "use_extreme_train_perc=", use_extreme_train_perc,
+          "log_X=", log_X, "zscore_X=", zscore_X, "mixup_alphas=", mixup_alphas, "mixup_mul_factors=", mixup_mul_factors,
+          "without_mixup=", without_mixup, "result_dir=", result_dir, "score_insample_orig=", score_insample_orig)
 
     scores_all = pd.DataFrame()
     best_params_all = pd.DataFrame()
@@ -370,15 +406,15 @@ def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=T
 
         if model == "ridge":
             scores_no_mixup, best_params_no_mixup = ridge(X, Y, mixup=False, use_extreme_all_perc=use_extreme_all_perc,
-            use_extreme_train_perc=use_extreme_train_perc, score_insample_orig=score_insample_orig)
+            use_extreme_train_perc=use_extreme_train_perc, log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
         elif model == "svr-rbf":
             scores_no_mixup, best_params_no_mixup = svr_rbf(X, Y, mixup=False, use_extreme_all_perc=use_extreme_all_perc,
-            use_extreme_train_perc=use_extreme_train_perc, score_insample_orig=score_insample_orig)
+            use_extreme_train_perc=use_extreme_train_perc, log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
         elif model == "rf":
             scores_no_mixup, best_params_no_mixup = random_forest(X, Y, mixup=False, use_extreme_all_perc=use_extreme_all_perc,
-            use_extreme_train_perc=use_extreme_train_perc, score_insample_orig=score_insample_orig)
+            use_extreme_train_perc=use_extreme_train_perc, log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
         else:
             print("Error: unrecognizable model")
@@ -387,8 +423,8 @@ def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=T
         scores_all = pd.concat([scores_all, scores_no_mixup], ignore_index=True)
         best_params_all = pd.concat([best_params_all, best_params_no_mixup], ignore_index=True)
 
-        scores_all.to_hdf(scores_path, key='p', mode='w')
-        best_params_all.to_hdf(best_params_path, key='p', mode='w')
+        # scores_all.to_hdf(scores_path, key='p', mode='w')
+        # best_params_all.to_hdf(best_params_path, key='p', mode='w')
 
     for mixup_mul_factor in mixup_mul_factors:
 
@@ -399,17 +435,17 @@ def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=T
             if model == "ridge":
                 scores, best_params = ridge(X, Y, mixup=True, mixup_alpha=mixup_alpha, mixup_mul_factor=mixup_mul_factor,
                                             use_extreme_all_perc=use_extreme_all_perc, use_extreme_train_perc=use_extreme_train_perc,
-                                            score_insample_orig=score_insample_orig)
+                                            log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
             elif model == "svr-rbf":
                 scores, best_params = svr_rbf(X, Y, mixup=True, mixup_alpha=mixup_alpha, mixup_mul_factor=mixup_mul_factor,
                                               use_extreme_all_perc=use_extreme_all_perc, use_extreme_train_perc=use_extreme_train_perc,
-                                              score_insample_orig=score_insample_orig)
+                                              log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
             elif model == "rf":
                 scores, best_params = random_forest(X, Y, mixup=True, mixup_alpha=mixup_alpha, mixup_mul_factor=mixup_mul_factor,
                                                     use_extreme_all_perc=use_extreme_all_perc, use_extreme_train_perc=use_extreme_train_perc,
-                                                    score_insample_orig=score_insample_orig)
+                                                    log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
             else:
                 print("Error: unrecognizable model")
@@ -418,8 +454,8 @@ def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=T
             scores_all = pd.concat([scores_all, scores], ignore_index=True)
             best_params_all = pd.concat([best_params_all, best_params], ignore_index=True)
 
-            scores_all.to_hdf(scores_path, key='p', mode='w')
-            best_params_all.to_hdf(best_params_path, key='p', mode='w')
+    scores_all.to_hdf(scores_path, key='p', mode='w')
+    best_params_all.to_hdf(best_params_path, key='p', mode='w')
 
     # if plot_scores:
     #     plot_all_scores(scores_all, title_prefix="Regression - ", save_folder=result_dir)
@@ -428,7 +464,10 @@ def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=T
 DATA_DIR = "data/"
 # DATA_DIR = "/Users/hasnainmamdani/Academics/McGill/thesis/data/"
 
-X = get_PC_data(DATA_DIR)
+# X = get_PC_data(DATA_DIR)
+
+X = get_atlas_lesion_load_matrix(DATA_DIR)
+# X = np.log(1 + X) # for mixup after log
 Y = get_patient_scores(DATA_DIR)
 
 print("X.shape", X.shape, "Y.shape", Y.shape)
@@ -436,9 +475,10 @@ print("X.shape", X.shape, "Y.shape", Y.shape)
 mixup_alphas = [0.01, 0.1, 0.3, 1.0]
 mixup_mul_factors = [5, 10]
 
-result_dir = "results/"
+result_dir = "results/llm-mixup-before-log-"
 
-run_with_mixup(X, Y, "ridge", mixup_alphas, mixup_mul_factors, without_mixup=True, result_dir=result_dir, use_extreme_all_perc=0.1)
-run_with_mixup(X, Y, "ridge", mixup_alphas, mixup_mul_factors, without_mixup=True, result_dir=result_dir, use_extreme_all_perc=0.2)
-# run_with_mixup(X, Y, "svr-rbf", mixup_alphas, mixup_mul_factors, without_mixup=True, result_dir=result_dir, use_extreme_all_perc=None)
-# run_with_mixup(X, Y, "rf", mixup_alphas, mixup_mul_factors, without_mixup=True, result_dir=result_dir, use_extreme_all_perc=0.3)
+# run_with_mixup(X, Y, "ridge", mixup_alphas, mixup_mul_factors, without_mixup=True, result_dir=result_dir,
+#                log_X=True, zscore_X=True, use_extreme_train_perc=0.4)
+
+run_with_mixup(X, Y, "rf", mixup_alphas, mixup_mul_factors, without_mixup=True, result_dir=result_dir,
+               log_X=True, zscore_X=True, use_extreme_train_perc=0.4)
