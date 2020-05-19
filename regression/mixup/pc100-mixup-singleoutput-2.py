@@ -467,7 +467,7 @@ DATA_DIR = "data/"
 # X = get_PC_data(DATA_DIR)
 
 X = get_atlas_lesion_load_matrix(DATA_DIR)
-# X = np.log(1 + X) # for mixup after log
+# X = np.log(1 + llm) # for mixup after log
 Y = get_patient_scores(DATA_DIR)
 
 print("X.shape", X.shape, "Y.shape", Y.shape)
