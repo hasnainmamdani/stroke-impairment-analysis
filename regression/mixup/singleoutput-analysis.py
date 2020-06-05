@@ -9,8 +9,7 @@ from sklearn.linear_model import Ridge
 from sklearn.svm import SVR
 from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
 from sklearn.metrics import r2_score, mean_absolute_error
-import matplotlib.pyplot as plt
-import seaborn as sns
+import argparse
 import math
 
 # To ensure reproducibility
@@ -69,7 +68,7 @@ def log_and_zscore(data):
 
 def get_atlas_lesion_load_matrix(data_dir):
     # load lesion load matrix
-    return np.load(data_dir + 'lesions_load_matrix_absolute.npy')
+    return np.load(data_dir + "combined_lesions_load_matrix.npy")
 
 
 def get_patient_scores(data_dir):
@@ -397,8 +396,11 @@ def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=T
 
     p_str = "-0.5" if use_extreme_all_perc is None else "-"+str(use_extreme_all_perc)
     p_str += "-0.5" if use_extreme_train_perc is None else "-"+str(use_extreme_train_perc)
-    scores_path = result_dir + "regression-singleoutput-pc100-mixup-" + model + p_str + ".h5"
-    best_params_path = result_dir + "best-params-regression-singleoutput-pc100-mixup-" + model + p_str + ".h5"
+    p_str += "-log-after" if log_X else ""
+    p_str += "-x" + str(mixup_mul_factors[0]) + "-" + str(mixup_alphas[0])
+    scores_path = result_dir + "regression-singleoutput-mixup-" + model + p_str + ".h5"
+    best_params_path = result_dir + "best-params-regression-singleoutput-mixup-" + model + p_str + ".h5"
+    print(scores_path)
 
     if without_mixup:
         # also get results without mixup (baseline)
@@ -461,24 +463,31 @@ def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=T
     #     plot_all_scores(scores_all, title_prefix="Regression - ", save_folder=result_dir)
 
 
-DATA_DIR = "data/"
-# DATA_DIR = "/Users/hasnainmamdani/Academics/McGill/thesis/data/"
+parser = argparse.ArgumentParser()
+parser.add_argument("--mixup-alpha", nargs="*", type=float, default=[0.1])
+parser.add_argument("--mixup-mul-factor", nargs="*", type=int, default=[5, 10])
+parser.add_argument("--data-dir", default="/Users/hasnainmamdani/Academics/McGill/thesis/data/")
+parser.add_argument("--result-dir", default="results/")
+parser.add_argument("--model", default="ridge")
+args = parser.parse_args()
+print(args)
+
+DATA_DIR = args.data_dir
 
 # X = get_PC_data(DATA_DIR)
-
 X = get_atlas_lesion_load_matrix(DATA_DIR)
 # X = np.log(1 + llm) # for mixup after log
 Y = get_patient_scores(DATA_DIR)
 
 print("X.shape", X.shape, "Y.shape", Y.shape)
 
-mixup_alphas = [0.01, 0.1, 0.3, 1.0]
-mixup_mul_factors = [5, 10]
+mixup_alphas = args.mixup_alpha
+mixup_mul_factors = args.mixup_mul_factor
 
-result_dir = "results/llm-mixup-before-log-"
+result_dir = args.result_dir
 
-# run_with_mixup(X, Y, "ridge", mixup_alphas, mixup_mul_factors, without_mixup=True, result_dir=result_dir,
-#                log_X=True, zscore_X=True, use_extreme_train_perc=0.4)
+without_mixup = True if (mixup_alphas[0] == 0.01 and mixup_mul_factors[0] == 5) else False
 
-run_with_mixup(X, Y, "rf", mixup_alphas, mixup_mul_factors, without_mixup=True, result_dir=result_dir,
-               log_X=True, zscore_X=True, use_extreme_train_perc=0.4)
+run_with_mixup(X, Y, args.model, mixup_alphas, mixup_mul_factors, without_mixup=without_mixup, result_dir=result_dir,
+               log_X=True, zscore_X=True)
+
