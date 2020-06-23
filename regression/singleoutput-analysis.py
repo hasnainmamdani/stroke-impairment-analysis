@@ -20,44 +20,21 @@ np.random.seed(39)
 def get_PC_data(data_dir):
     # Calculate 100 PC components
     if not os.path.isfile(data_dir + 'binary_imgs_pc_100.npy'):
-        imgs = get_binary_imgs(data_dir)
-        print("Created/loaded binary images. Size:", imgs.shape)
+        imgs = np.load(data_dir + "binary_imgs.npy")  # ensure they are there
+        print("Loaded binary images. Size:", imgs.shape)
 
         pca = PCA(n_components=100, copy=False)
         X_pc = pca.fit_transform(imgs)
+        from joblib import dump
+        dump(pca, data_dir + 'pca100.joblib')
         np.save(data_dir + 'binary_imgs_pc_100.npy', X_pc)
+        print("Created/saved 100 PC components. Size:", X_pc.shape)
 
     else:
         X_pc = np.load(data_dir + 'binary_imgs_pc_100.npy')
-        print("Created/loaded 100 PC components. Size:", X_pc.shape)
+        print("Loaded 100 PC components. Size:", X_pc.shape)
 
     return X_pc
-
-
-def get_binary_imgs(data_dir):
-    # Create/store/load binary image data
-    if not os.path.isfile(data_dir + 'binary_imgs.npy'):
-        from nilearn.input_data import NiftiMasker
-        from nilearn.datasets import load_mni152_brain_mask
-        import glob
-
-        dataset_path = data_dir + "HallymBundang_lesionmaps_Bzdok_n1401/"
-        img_filenames = glob.glob(os.path.join(dataset_path, '*.nii.gz'))
-        img_filenames.sort()
-        print('Number of subjects: %d' % len(img_filenames))
-
-        mask_img = load_mni152_brain_mask()
-        masker = NiftiMasker(mask_img=mask_img, memory='nilearn_cache', verbose=5)
-        masker = masker.fit()
-
-        imgs = masker.transform(img_filenames)  # break down into slices if necessary
-        imgs = imgs.astype(bool)
-        np.save(data_dir + 'binary_imgs', imgs)
-
-    else:
-        imgs = np.load(data_dir + 'binary_imgs.npy')
-
-    return imgs
 
 
 def log_and_zscore(data):
@@ -323,7 +300,7 @@ def ridge(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extreme_all_
     # defining the hyperparameter range for vaious combinations (learnt from experience)
     if mixup:
         if use_extreme_train_perc is None and use_extreme_all_perc is None:
-            alpha = np.linspace(1, 5001, 251)
+            alpha = np.linspace(1, 200, 200)
         elif use_extreme_train_perc == 0.1 or use_extreme_all_perc == 0.1:
             alpha = np.concatenate((np.linspace(0.001, 1, 250), np.linspace(1.01, 5, 100)))
         elif use_extreme_train_perc == 0.2 or use_extreme_all_perc == 0.2:
@@ -337,7 +314,7 @@ def ridge(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extreme_all_
         if use_extreme_train_perc is None and use_extreme_all_perc is None:
             alpha = np.linspace(1, 600001, 3001)
         else:
-            alpha = np.linspace(1, 200001, 2001)
+            alpha = np.linspace(1, 50001, 2001)
 
     grid = {"alpha": alpha}
     print(grid)
@@ -354,7 +331,7 @@ def svr_rbf(X, Y, mixup, mixup_alpha=None, mixup_mul_factor=None, use_extreme_al
     grid = {"C": np.logspace(-1, 6, 8),
             "gamma": np.logspace(-3, 8, 12)}
 
-    return run_regression_single_output(X, Y, estimator, grid, "SVR-RBF", mixup=mixup,
+    return run_regression_single_output(X, Y, estimator, grid, "SVR-RBF", random_search_cv=True, random_iter=32, mixup=mixup,
             mixup_alpha=mixup_alpha, mixup_mul_factor=mixup_mul_factor, use_extreme_all_perc=use_extreme_all_perc,
             use_extreme_train_perc=use_extreme_train_perc, log_X=log_X, zscore_X=zscore_X, score_insample_orig=score_insample_orig)
 
@@ -463,20 +440,27 @@ def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=T
     #     plot_all_scores(scores_all, title_prefix="Regression - ", save_folder=result_dir)
 
 
+use_pc100 = True  # False for atlas ROI lesion load matrix
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--mixup-alpha", nargs="*", type=float, default=[0.1])
 parser.add_argument("--mixup-mul-factor", nargs="*", type=int, default=[5, 10])
 parser.add_argument("--data-dir", default="/Users/hasnainmamdani/Academics/McGill/thesis/data/")
-parser.add_argument("--result-dir", default="results/")
+parser.add_argument("--result-dir", default="results/" + ("pc100_" if use_pc100 else "atlas_llm_"))
 parser.add_argument("--model", default="ridge")
 args = parser.parse_args()
 print(args)
 
 DATA_DIR = args.data_dir
 
-# X = get_PC_data(DATA_DIR)
-X = get_atlas_lesion_load_matrix(DATA_DIR)
-# X = np.log(1 + llm) # for mixup after log
+
+if use_pc100:
+    X = get_PC_data(DATA_DIR)
+
+else:
+    X = get_atlas_lesion_load_matrix(DATA_DIR)
+    # X = np.log(1 + llm) # for mixup after log
+
 Y = get_patient_scores(DATA_DIR)
 
 print("X.shape", X.shape, "Y.shape", Y.shape)
@@ -484,10 +468,8 @@ print("X.shape", X.shape, "Y.shape", Y.shape)
 mixup_alphas = args.mixup_alpha
 mixup_mul_factors = args.mixup_mul_factor
 
-result_dir = args.result_dir
-
 without_mixup = True if (mixup_alphas[0] == 0.01 and mixup_mul_factors[0] == 5) else False
 
-run_with_mixup(X, Y, args.model, mixup_alphas, mixup_mul_factors, without_mixup=without_mixup, result_dir=result_dir,
-               log_X=True, zscore_X=True)
+run_with_mixup(X, Y, args.model, mixup_alphas, mixup_mul_factors, without_mixup=without_mixup, result_dir=args.result_dir,
+               log_X=not use_pc100, zscore_X=True)
 
