@@ -11,6 +11,7 @@ from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
 from sklearn.metrics import r2_score, mean_absolute_error
 import argparse
 import math
+from scipy.stats.stats import pearsonr
 
 # To ensure reproducibility
 random.seed(39)
@@ -107,6 +108,18 @@ def calculate_regression_metrics(est_cv, X_train, X_test, Y_train, Y_test, model
 
     train_mae = mean_absolute_error(Y_train, Y_predicted_train, multioutput='raw_values')
     test_mae = mean_absolute_error(Y_test, Y_predicted_test, multioutput='raw_values')
+
+    train_pear = pearsonr(Y_train, Y_predicted_train)
+    test_pear = pearsonr(Y_test, Y_predicted_test)
+
+    print("train_rsq", train_rsq)
+    # print("train_pear", train_pear)
+    print("train_pear^2", train_pear[0]**2)
+    print()
+    print("test_rsq", test_rsq)
+    # print("test_pear", test_pear)
+    print("test_pear^2", test_pear[0]**2)
+    print()
 
     if score_insample_orig:
         Y_predicted_train_orig = est_cv.predict(X_train_orig)
@@ -440,14 +453,14 @@ def run_with_mixup(X, Y, model, mixup_alphas, mixup_mul_factors, without_mixup=T
     #     plot_all_scores(scores_all, title_prefix="Regression - ", save_folder=result_dir)
 
 
-use_pc100 = True  # False for atlas ROI lesion load matrix
+use_pc100 = False  # False for atlas ROI lesion load matrix
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--mixup-alpha", nargs="*", type=float, default=[0.1])
+parser.add_argument("--mixup-alpha", nargs="*", type=float, default=[0.01])
 parser.add_argument("--mixup-mul-factor", nargs="*", type=int, default=[5, 10])
 parser.add_argument("--data-dir", default="/Users/hasnainmamdani/Academics/McGill/thesis/data/")
 parser.add_argument("--result-dir", default="results/" + ("pc100_" if use_pc100 else "atlas_llm_"))
-parser.add_argument("--model", default="ridge")
+parser.add_argument("--model", default="rf")
 args = parser.parse_args()
 print(args)
 

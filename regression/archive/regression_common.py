@@ -105,7 +105,7 @@ def perform_regression(X, y, estimator, my_grid, random_search_cv=False, n_jobs=
 
 def plot_scores(score_df, score_type, metric, hue_order=None):
 
-    plt.figure(figsize=(15, 10))
+#     plt.figure(figsize=(15, 10))
 
     data = score_df[(score_df["Score type"] == score_type) & (score_df["Metric"] == metric)]
 
@@ -113,9 +113,17 @@ def plot_scores(score_df, score_type, metric, hue_order=None):
     palette = {"Ridge":"C0", "Multitask Ridge": "C0", "PLS": "C1", "Random Forest": "C2", "CCA": "C3", "Neural Network": "C4",
                "Neural Network (Linear)": "C5", "SVR": "C6", "XGBoost": "C7"}
 
-    sns.barplot(x="Domains", y="Score", hue="Model", hue_order=hue_order,
-                data=data, ci="sd", capsize=.2, palette=palette)
-    plt.axhline(0, color="black")
+#     sns.barplot(x="Domains", y="Score", hue="Model", hue_order=hue_order,
+#                 data=data, ci="sd", capsize=.2, palette=palette)
+    
+    g = sns.catplot(x="Domains", y="Score", hue="Model", hue_order=hue_order,
+                    data=data, ci="sd", kind="bar", palette=palette)
+    
+    
+    for i, ax in enumerate(g.fig.axes):
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=65)
+        ax.axhline(0, color="black")
+        ax.axhline(0.2, color="black")
 
     if score_type == "Out-of-sample":
         if metric == "R2":
