@@ -8,6 +8,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.cross_decomposition import CCA
 from nilearn.signal import clean
 from scipy.stats import pearsonr
+from matplotlib import pylab as plt
+import seaborn as sns
 
 # To ensure reproducibility
 random.seed(39)
@@ -107,12 +109,12 @@ def deconfound(data_dir, X, Y):
 
     age = StandardScaler().fit_transform(patient_select_df["Age"].values.reshape(-1, 1))
     age2 = age ** 2
-    sex = pd.get_dummies(patient_select_df["Sex"]).values
+    sex = pd.get_dummies(patient_select_df["Sex"]).values[:, 0].reshape(-1, 1)
     sex_x_age = sex * age
     sex_x_age2 = sex * age2
     edu = StandardScaler().fit_transform(patient_select_df["Education_years"].values.reshape(-1, 1))
     infarct_volume = StandardScaler().fit_transform(patient_select_df["Total_infarct_volume"].values.reshape(-1, 1))
-    cohort = pd.get_dummies(patient_select_df["Cohort"]).values
+    cohort = pd.get_dummies(patient_select_df["Cohort"]).values[:, 0].reshape(-1, 1)
 
     conf_mat = np.hstack([age, age2, sex, sex_x_age, sex_x_age2, edu, infarct_volume, cohort])
 
@@ -120,6 +122,35 @@ def deconfound(data_dir, X, Y):
     Y_conf = clean(Y, confounds=conf_mat, detrend=False, standardize=False)
 
     return X_conf, Y_conf
+
+
+def plot_cca_loadings(X, Y):
+    n_keep = 3
+
+    cca = CCA(n_components=n_keep, scale=False)
+    cca.fit(X, Y)
+
+    roi_names = np.load(DATA_DIR + "combined_atlas_region_labels.npy")
+    langauge_score_names = ['SVLT Immediate Recall', 'SVLT Delayed Recall', 'SVLT Recognition']
+
+    for i_ccomp in range(n_keep):
+
+        plt.figure(figsize=(50, 30))
+        plt.bar(roi_names, cca.x_loadings_[:, i_ccomp])
+        plt.xticks(rotation=90)
+        plt.tight_layout()
+        plt.axhline(-0.8, color="black")
+        plt.title('Canonical component %i: Atlas regions' % (i_ccomp + 1))
+        plt.savefig('cca_x_%iof%i' % (i_ccomp + 1, n_keep), bbox_inches='tight')
+
+        plt.clf()
+        plt.figure(figsize=(6, 5))
+        plt.bar(langauge_score_names, cca.y_loadings_[:, i_ccomp])
+        plt.xticks(rotation=90)
+        plt.tight_layout()
+        # plt.axhline(-0.8, color="black")
+        plt.title('Canonical component %i: Language scores' % (i_ccomp + 1))
+        plt.savefig('cca_y_%iof%i' % (i_ccomp + 1, n_keep), bbox_inches='tight')
 
 
 def permutation_test(X, Y):
@@ -202,5 +233,6 @@ Y_z = StandardScaler().fit_transform(Y)
 
 X_deconf, Y_deconf = deconfound(DATA_DIR, X_z, Y_z)
 
-permutation_test(X_deconf, Y_deconf)
+plot_cca_loadings(X_deconf, Y_deconf)
+# permutation_test(X_deconf, Y_deconf)
 
