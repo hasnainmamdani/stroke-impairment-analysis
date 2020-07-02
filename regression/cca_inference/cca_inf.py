@@ -6,14 +6,12 @@ import random
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.cross_decomposition import CCA
-
 from nilearn.signal import clean
 from scipy.stats import pearsonr
 
 # To ensure reproducibility
 random.seed(39)
 np.random.seed(39)
-
 
 def get_PC_data(data_dir):
     # Calculate 100 PC components
@@ -54,10 +52,8 @@ def get_patient_idx_with_no_previous_lesions(data_dir):
 
 def get_patient_scores(data_dir, language_only=False, filter_idx=None):
     """
-
-    :param data_dir:
-    :param language_only:
-    :param filter_idx: For all cognitive scores. language scores are already filtered.
+    :param language_only: use language scores only
+    :param filter_idx: For all cognitive scores. Language scores are already filtered.
     :return:
     """
 
