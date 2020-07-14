@@ -9,7 +9,6 @@ from sklearn.cross_decomposition import CCA
 from nilearn.signal import clean
 from scipy.stats import pearsonr
 from matplotlib import pylab as plt
-import seaborn as sns
 
 # To ensure reproducibility
 random.seed(39)
@@ -104,7 +103,7 @@ def get_patient_scores(data_dir, language_only=False, filter_idx=None):
     return scores
 
 
-def deconfound(data_dir, X):
+def deconfound(data_dir, data):
 
     patient_select_df = pd.read_excel(data_dir + 'stroke-dataset/HallymBundang_MultiOutcome_25062020_selection_nopass.xlsx',
                                       sep=',', skipinitialspace=True)[:1154]
@@ -115,14 +114,15 @@ def deconfound(data_dir, X):
     sex_x_age = sex * age
     sex_x_age2 = sex * age2
     edu = StandardScaler().fit_transform(patient_select_df["Education_years"].values.reshape(-1, 1))
-    infarct_volume = StandardScaler().fit_transform(patient_select_df["Total_infarct_volume"].values.reshape(-1, 1))
+    # infarct_volume = StandardScaler().fit_transform(patient_select_df["Total_infarct_volume"].values.reshape(-1, 1))
     cohort = pd.get_dummies(patient_select_df["Cohort"]).values[:, 0].reshape(-1, 1)
 
-    conf_mat = np.hstack([age, age2, sex, sex_x_age, sex_x_age2, edu, infarct_volume, cohort])
+    # conf_mat = np.hstack([age, age2, sex, sex_x_age, sex_x_age2, edu, infarct_volume, cohort])
+    conf_mat = np.hstack([age, age2, sex, sex_x_age, sex_x_age2, edu, cohort])
 
-    X_conf = clean(X, confounds=conf_mat, detrend=False, standardize=False)
+    data_conf = clean(data, confounds=conf_mat, detrend=False, standardize=False)
 
-    return X_conf
+    return data_conf
 
 
 def plot_cca_loadings(X, Y, data_dir, include_cerebellum_regions):
@@ -142,7 +142,11 @@ def plot_cca_loadings(X, Y, data_dir, include_cerebellum_regions):
         plt.figure(figsize=(50, 30))
         plt.xticks(rotation=90)
         plt.tight_layout()
+        plt.ylim(-1.2, 1.2)
+        plt.yticks(np.arange(-1.2, 1.3, 0.2))
         plt.axhline(0, color="black")
+        plt.axhline(-0.6, color="red")
+        plt.axhline(0.6, color="red")
         plt.title('Canonical component %i: Atlas regions' % (i_ccomp + 1))
         plt.bar(roi_names, cca.x_loadings_[:, i_ccomp])
         plt.savefig('cca_x_%iof%i' % (i_ccomp + 1, n_keep), bbox_inches='tight')
@@ -261,6 +265,8 @@ def main():
 
     Y_norm = normalize_scores(Y, zscore=False)
     # Y_norm = 1 - Y_norm
+
+    # Y_deconf = deconfound(DATA_DIR, Y_norm)
 
     plot_cca_loadings(X_deconf, Y_norm, DATA_DIR, include_cerebellum_regions)
 
