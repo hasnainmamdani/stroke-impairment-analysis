@@ -9,6 +9,8 @@ from sklearn.cross_decomposition import CCA
 from nilearn.signal import clean
 from scipy.stats import pearsonr
 from matplotlib import pylab as plt
+import itertools
+import seaborn as sns
 
 # To ensure reproducibility
 random.seed(39)
@@ -125,19 +127,14 @@ def deconfound(data_dir, data):
     return data_conf
 
 
-def plot_cca_loadings(X, Y, data_dir, include_cerebellum_regions):
-    n_keep = 3
-
-    cca = CCA(n_components=n_keep, scale=False)
-    cca.fit(X, Y)
+def plot_cca_loadings(cca, data_dir):
 
     roi_names = np.load(data_dir + "combined_atlas_region_labels.npy")
-    if not include_cerebellum_regions:
-        roi_names = roi_names[np.r_[0:111, 145:193]]
-
     langauge_score_names = ['SVLT Immediate Recall', 'SVLT Delayed Recall', 'SVLT Recognition']
 
-    for i_ccomp in range(n_keep):
+    n_comp = cca.n_components
+
+    for i_ccomp in range(n_comp):
 
         plt.figure(figsize=(50, 30))
         plt.xticks(rotation=90)
@@ -149,7 +146,7 @@ def plot_cca_loadings(X, Y, data_dir, include_cerebellum_regions):
         plt.axhline(0.6, color="red")
         plt.title('Canonical component %i: Atlas regions' % (i_ccomp + 1))
         plt.bar(roi_names, cca.x_loadings_[:, i_ccomp])
-        plt.savefig('cca_x_%iof%i' % (i_ccomp + 1, n_keep), bbox_inches='tight')
+        plt.savefig('cca_x_%iof%i' % (i_ccomp + 1, n_comp), bbox_inches='tight')
 
         plt.clf()
         plt.figure(figsize=(6, 5))
@@ -158,18 +155,15 @@ def plot_cca_loadings(X, Y, data_dir, include_cerebellum_regions):
         plt.axhline(0, color="black")
         plt.title('Canonical component %i: Language scores' % (i_ccomp + 1))
         plt.bar(langauge_score_names, cca.y_loadings_[:, i_ccomp])
-        plt.savefig('cca_y_%iof%i' % (i_ccomp + 1, n_keep), bbox_inches='tight')
+        plt.savefig('cca_y_%iof%i' % (i_ccomp + 1, n_comp), bbox_inches='tight')
 
 
-def permutation_test(X, Y):
+def permutation_test(actual_cca, X, Y):
 
-    n_keep = 3
-    n_permutations = 1000
-
-    actual_cca = CCA(n_components=n_keep, scale=False)
-    actual_cca.fit(X, Y)
     actual_Rs = np.array([pearsonr(X_coef, Y_coef)[0] for X_coef, Y_coef in zip(actual_cca.x_scores_.T, actual_cca.y_scores_.T)])
 
+    n_comp = actual_cca.n_components
+    n_permutations = 1000
     perm_rs = np.random.RandomState(72)
     perm_Rs = []
     n_except = 0
@@ -181,7 +175,7 @@ def permutation_test(X, Y):
 
         # same procedure, only with permuted subjects on the right side
         try:
-            perm_cca = CCA(n_components=n_keep, scale=False)
+            perm_cca = CCA(n_components=n_comp, scale=False)
 
             # perm_inds = np.arange(len(Y_netmet))
             # perm_rs.shuffle(perm_inds)
@@ -193,12 +187,12 @@ def permutation_test(X, Y):
         except:
             print("except")
             n_except += 1
-            perm_Rs.append(np.zeros(n_keep))
+            perm_Rs.append(np.zeros(n_comp))
 
     perm_Rs = np.array(perm_Rs)
 
     pvals = []
-    for i_coef in range(n_keep):
+    for i_coef in range(n_comp):
         cur_pval = (1. + np.sum(perm_Rs[1:, 0] > actual_Rs[i_coef])) / n_permutations
         pvals.append(cur_pval)
 
@@ -206,7 +200,7 @@ def permutation_test(X, Y):
     print("p-values:", pvals)
 
     pvals_loose = []
-    for i_coef in range(n_keep):
+    for i_coef in range(n_comp):
         cur_pval = (1. + np.sum(perm_Rs[1:, i_coef] > actual_Rs[i_coef])) / n_permutations
         pvals_loose.append(cur_pval)
     print("p-values (loose):", pvals_loose)
@@ -215,6 +209,30 @@ def permutation_test(X, Y):
     print('%i CCs are significant at p<0.05' % np.sum(pvals < 0.05))
     print('%i CCs are significant at p<0.01' % np.sum(pvals < 0.01))
     print('%i CCs are significant at p<0.001' % np.sum(pvals < 0.001))
+
+
+def plot_cca_component_comparison(cca):
+
+    for side in ['X']:
+
+        for i, j in itertools.combinations([0, 1, 2], 2):
+
+            data_ax1 = cca.x_scores_[:, i] if side == 'X' else cca.y_scores_[:, i]
+            data_ax2 = cca.x_scores_[:, j] if side == 'X' else cca.y_scores_[:, j]
+
+            gridsize = 250 if side == 'X' else 100
+
+            xlim = (-0.1, 0.1) if side == 'X' else (-0.1, 0.1)
+            ylim = (-0.1, 0.1) if side == 'X' else (-0.1, 0.5)
+
+            hexplot = (sns.jointplot(data_ax1, data_ax2, kind="hex", xlim=xlim, ylim=ylim,
+                                     joint_kws=dict(gridsize=gridsize))
+                       .set_axis_labels('CC-'+str(i+1) + ' ' + side, 'CC-'+str(j+1) + ' ' + side))
+            plt.subplots_adjust(left=0.15, right=0.80, top=0.85, bottom=0.15)
+            # cbar_ax = hexplot.fig.add_axes([.85, .25, .05, .4])  # x, y, width, height
+            plt.colorbar().set_label("Number of samples")
+            plt.tight_layout()
+            plt.savefig("CCA_" + side + str(i+1) + str(j+1))
 
 
 def normalize_scores(Y, zscore):
@@ -232,7 +250,6 @@ def normalize_scores(Y, zscore):
 def main():
 
     use_pc100 = False  # False for atlas ROI lesion load matrix
-    include_cerebellum_regions = False
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", default="/Users/hasnainmamdani/Academics/McGill/thesis/data/")
@@ -253,9 +270,6 @@ def main():
 
     X = X[filter_idx]
 
-    if not include_cerebellum_regions:
-        X = X[:, np.r_[0:111, 145:193]]
-
     Y = get_patient_scores(DATA_DIR, args.language_scores_only, filter_idx)
 
     print("X.shape", X.shape, "Y.shape", Y.shape)
@@ -264,13 +278,17 @@ def main():
     X_deconf = deconfound(DATA_DIR, X_z)
 
     Y_norm = normalize_scores(Y, zscore=False)
-    # Y_norm = 1 - Y_norm
+    Y_norm = 1 - Y_norm
 
     # Y_deconf = deconfound(DATA_DIR, Y_norm)
 
-    plot_cca_loadings(X_deconf, Y_norm, DATA_DIR, include_cerebellum_regions)
+    cca = CCA(n_components=3, scale=False).fit(X_deconf, Y_norm)
 
-    permutation_test(X_deconf, Y_norm)
+    plot_cca_loadings(cca, DATA_DIR)
+
+    plot_cca_component_comparison(cca)
+
+    permutation_test(cca, X_deconf, Y_norm)
 
 
 if __name__ == "__main__":
