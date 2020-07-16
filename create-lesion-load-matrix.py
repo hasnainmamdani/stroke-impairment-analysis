@@ -105,6 +105,36 @@ def load_cereb_atlas(atlas_path, reference_img, mask):
     return atlas_cereb_vectorized, labels_cereb
 
 
+def load_cereb_atlas_hammers(atlas_path, reference_img, mask):
+
+    print("loading Hammer's Atlas (Cerebellum regions)...")
+
+    atlas_cereb_left_img = load_img(atlas_path + "hammers_cerebellum_L_1mm.nii.gz")
+    atlas_cereb_right_img = load_img(atlas_path + "hammers_cerebellum_R_1mm.nii.gz")
+
+    labels_cereb = np.array(["None", "Hammer's - Cerebellum Left", "Hammer's - Cerebellum Right"])
+
+    atlas_cereb_left_img_resampled = resample_to_img(atlas_cereb_left_img, reference_img, interpolation="nearest")  # not needed here but a good practice
+    atlas_cereb_right_img_resampled = resample_to_img(atlas_cereb_right_img, reference_img, interpolation="nearest")
+
+    atlas_cereb_left_vectorized = atlas_cereb_left_img_resampled.get_fdata()[mask].astype(int)
+    atlas_cereb_right_vectorized = atlas_cereb_right_img_resampled.get_fdata()[mask].astype(int)
+
+    atlas_cereb_right_vectorized[atlas_cereb_right_vectorized == 1] = 2
+
+    atlas_cereb_vectorized = atlas_cereb_left_vectorized + atlas_cereb_right_vectorized
+
+    print(len(labels_cereb))
+    print(atlas_cereb_left_img_resampled.shape)
+    print(atlas_cereb_right_img_resampled.shape)
+    print(atlas_cereb_left_vectorized.shape)
+    print(atlas_cereb_right_vectorized.shape)
+    print(atlas_cereb_vectorized.shape)
+    print(np.unique(atlas_cereb_vectorized))
+
+    return atlas_cereb_vectorized, labels_cereb
+
+
 def load_jhu_wm_atlas(atlas_path, reference_img, mask):
 
     print("loading JHU White Matter Tract Atlas...")
@@ -126,10 +156,10 @@ def load_jhu_wm_atlas(atlas_path, reference_img, mask):
 
 def create_lesion_load_matrix_atlas(atlas, region_names, imgs):
 
-    assert atlas.shape == imgs[0].shape, "Atlas dimesnsion and image dimension must be same"
+    assert atlas.shape == imgs[0].shape, "Atlas dimension and image dimension must be same"
 
     region_labels = np.unique(atlas)
-    region_labels = region_labels[region_labels != 0]  # background
+    region_labels = region_labels[region_labels != 0]  # background/unlabeled
 
     lesion_load_matrix = np.zeros((imgs.shape[0], len(region_labels)), dtype=int)
 
@@ -150,7 +180,8 @@ def create_lesion_load_matrix(atlas_dir, lesion_data, reference_img):
 
     atlas_cort_img, atlas_cort_labels = load_ho_cort_atlas(reference_img, mask)
     atlas_subcort_img, atlas_subcort_labels = load_ho_subcort_atlas(reference_img, mask)
-    atlas_cereb_img, atlas_cereb_labels = load_cereb_atlas(atlas_dir, reference_img, mask)
+    # atlas_cereb_img, atlas_cereb_labels = load_cereb_atlas(atlas_dir, reference_img, mask)
+    atlas_cereb_img, atlas_cereb_labels = load_cereb_atlas_hammers(atlas_dir, reference_img, mask)
     atlas_wm_img, atlas_wm_labels = load_jhu_wm_atlas(atlas_dir, reference_img, mask)
 
     llm_cort, region_names_cort = create_lesion_load_matrix_atlas(atlas_cort_img, atlas_cort_labels, lesion_data)
@@ -164,21 +195,25 @@ def create_lesion_load_matrix(atlas_dir, lesion_data, reference_img):
     return llm, region_names
 
 
-DATA_DIR = "/Users/hasnainmamdani/Academics/McGill/thesis/data/"
+def main():
 
-lesion_imgs = get_binary_lesion_imgs(DATA_DIR)
-print("lesion data loaded:", lesion_imgs.shape)
+    DATA_DIR = "/Users/hasnainmamdani/Academics/McGill/thesis/data/"
 
-reference_img = load_img("/Users/hasnainmamdani/Academics/McGill/thesis/data/stroke-dataset/HallymBundang_lesionmaps_Bzdok_n1401/1001.nii.gz")
+    lesion_imgs = get_binary_lesion_imgs(DATA_DIR)
+    print("lesion data loaded:", lesion_imgs.shape)
 
-atlas_dir = DATA_DIR + "atlas/"
+    reference_img = load_img(DATA_DIR + "stroke-dataset/HallymBundang_lesionmaps_Bzdok_n1401/1001.nii.gz")
 
-lesion_load_matrix, region_labels = create_lesion_load_matrix(atlas_dir, lesion_imgs, reference_img)
+    atlas_dir = DATA_DIR + "atlas/"
 
-print(lesion_load_matrix.shape, region_labels.shape)
-np.save(DATA_DIR + "combined_lesions_load_matrix.npy", lesion_load_matrix)
-np.save(DATA_DIR + "combined_atlas_region_labels.npy", region_labels)
+    lesion_load_matrix, region_labels = create_lesion_load_matrix(atlas_dir, lesion_imgs, reference_img)
+
+    print(lesion_load_matrix.shape, region_labels.shape)
+    np.save(DATA_DIR + "combined_lesions_load_matrix.npy", lesion_load_matrix)
+    np.save(DATA_DIR + "combined_atlas_region_labels.npy", region_labels)
 
 
+if __name__ == "__main__":
+    main()
 
 
