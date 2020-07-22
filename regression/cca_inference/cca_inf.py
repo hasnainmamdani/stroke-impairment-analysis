@@ -11,10 +11,14 @@ from scipy.stats import pearsonr
 from matplotlib import pylab as plt
 import itertools
 import seaborn as sns
+from nilearn.image import load_img, resample_to_img, new_img_like
+from nilearn.datasets import load_mni152_brain_mask
+from nibabel import save
 
 # To ensure reproducibility
 random.seed(39)
 np.random.seed(39)
+
 
 def get_PC_data(data_dir):
     # Calculate 100 PC components
@@ -145,7 +149,8 @@ def plot_cca_loadings(cca, data_dir):
         plt.axhline(-0.6, color="red")
         plt.axhline(0.6, color="red")
         plt.title('Canonical component %i: Atlas regions' % (i_ccomp + 1))
-        plt.bar(roi_names, cca.x_loadings_[:, i_ccomp])
+        x_loadings = (cca.x_loadings_[:, i_ccomp] * -1) if i_ccomp in [0, 2] else cca.x_loadings_[:, i_ccomp]  # fixing directionality
+        plt.bar(roi_names, x_loadings)
         plt.savefig('cca_x_%iof%i' % (i_ccomp + 1, n_comp), bbox_inches='tight')
 
         plt.clf()
@@ -154,8 +159,15 @@ def plot_cca_loadings(cca, data_dir):
         plt.tight_layout()
         plt.axhline(0, color="black")
         plt.title('Canonical component %i: Language scores' % (i_ccomp + 1))
-        plt.bar(langauge_score_names, cca.y_loadings_[:, i_ccomp])
+        y_loadings = (cca.y_loadings_[:, i_ccomp] * -1) if i_ccomp in [0, 2] else cca.y_loadings_[:, i_ccomp]  # fixing directionality
+        plt.bar(langauge_score_names, y_loadings)
         plt.savefig('cca_y_%iof%i' % (i_ccomp + 1, n_comp), bbox_inches='tight')
+
+        # plt.plot(cca.x_scores_[:, 1], Y_norm[:, 0], 'o', markersize=1)
+        # plt.title("Pearson Correlation: " + str(pearsonr(cca.x_scores_[:, 0], Y_norm[:, 2])[0]))
+        # plt.xlabel("Canonical variate 1 (brain side)")
+        # plt.ylabel("Language Recognition Impairment - Inverted score")
+        # plt.savefig('dd2')
 
 
 def permutation_test(actual_cca, X, Y):
@@ -213,17 +225,25 @@ def permutation_test(actual_cca, X, Y):
 
 def plot_cca_component_comparison(cca):
 
-    for side in ['X']:
+    for side in ['Y']:
 
-        for i, j in itertools.combinations([0, 1, 2], 2):
+        for i, j in itertools.combinations(np.arange(cca.n_components), 2):
 
             data_ax1 = cca.x_scores_[:, i] if side == 'X' else cca.y_scores_[:, i]
             data_ax2 = cca.x_scores_[:, j] if side == 'X' else cca.y_scores_[:, j]
 
-            gridsize = 250 if side == 'X' else 100
+            # fixing directionality
+            if i in [0, 2]:
+                data_ax1 = data_ax1 * -1
+            if j in [0, 2]:
+                data_ax2 = data_ax2 * -1
 
-            xlim = (-0.1, 0.1) if side == 'X' else (-0.1, 0.1)
-            ylim = (-0.1, 0.1) if side == 'X' else (-0.1, 0.5)
+            gridsize = 250 if side == 'X' else 35  # 35 for Y2-Y3
+
+            if not (i == 1 and j == 2):
+                continue
+            xlim = (-0.1, 0.1) if side == 'X' else (-0.15, 0.15)
+            ylim = (-0.12, 0.12) if side == 'X' else (-0.5, 0.5)
 
             hexplot = (sns.jointplot(data_ax1, data_ax2, kind="hex", xlim=xlim, ylim=ylim,
                                      joint_kws=dict(gridsize=gridsize))
@@ -245,6 +265,98 @@ def normalize_scores(Y, zscore):
         Y[:, i] = Y[:, i] / max_score
 
     return Y
+
+
+def get_mni_mask(reference_img):
+
+    mask_img = load_mni152_brain_mask()
+    mask_img_resampled = resample_to_img(mask_img, reference_img, interpolation="linear")
+    mask = np.where(mask_img_resampled.get_fdata() == 1)  # Not using NiftiMasker because it takes too long and too much memory to transform.
+
+    return mask
+
+
+def plot_loadings_to_brain(data_dir, loadings, zscore=False):
+
+    # fixing directionality
+    loadings[:, 0] *= -1
+    loadings[:, 2] *= -1
+
+    if zscore:
+        loadings = StandardScaler().fit_transform(loadings)
+
+    reference_img = load_img(data_dir + "stroke-dataset/HallymBundang_lesionmaps_Bzdok_n1401/1001.nii.gz")
+    mask_idx = get_mni_mask(reference_img)
+
+    roi_names = np.load(data_dir + "combined_atlas_region_labels.npy")
+
+    nifti_data_vectorized = np.empty((loadings.shape[1], len(mask_idx[0])))
+
+    atlas_ho_cort_vectorized = np.load(data_dir + "atlas/processed/ho_cortical_atlas_vectorized.npy")
+    atlas_ho_cort_labels = np.load(data_dir + "atlas/processed/ho_cortical_atlas_region_labels.npy")
+
+    atlas_ho_subcort_vectorized = np.load(data_dir + "atlas/processed/ho_subcortical_atlas_vectorized.npy")
+    atlas_ho_subcort_labels = np.load(data_dir + "atlas/processed/ho_subcortical_atlas_region_labels.npy")
+
+    atlas_cereb_vectorized = np.load(data_dir + "atlas/processed/cereb_atlas_vectorized.npy")
+    atlas_cereb_labels = np.load(data_dir + "atlas/processed/cereb_atlas_region_labels.npy")
+
+    atlas_jhu_wm_vectorized = np.load(data_dir + "atlas/processed/jhu_wm_atlas_vectorized.npy")
+    atlas_jhu_wm_labels = np.load(data_dir + "atlas/processed/jhu_wm_atlas_region_labels.npy")
+
+    for i_mode in range(loadings.shape[1]):
+
+        loadings_mni = np.zeros((4, len(mask_idx[0])))
+
+        for i_roi in range(len(roi_names)):
+
+            if roi_names[i_roi].startswith("HO Cortical - "):
+
+                label_int = np.where(atlas_ho_cort_labels == roi_names[i_roi])[0][0]
+                idx_roi = np.where(atlas_ho_cort_vectorized == label_int)
+                loadings_mni[0][idx_roi] = loadings[i_roi][i_mode]
+
+            elif roi_names[i_roi].startswith("HO Subcortical - "):
+
+                label_int = np.where(atlas_ho_subcort_labels == roi_names[i_roi])[0][0]
+                idx_roi = np.where(atlas_ho_subcort_vectorized == label_int)
+                loadings_mni[1][idx_roi] = loadings[i_roi][i_mode]
+
+            elif roi_names[i_roi].startswith("Hammer's - "):
+
+                label_int = np.where(atlas_cereb_labels == roi_names[i_roi])[0][0]
+                idx_roi = np.where(atlas_cereb_vectorized == label_int)
+                loadings_mni[2][idx_roi] = loadings[i_roi][i_mode]
+
+            elif roi_names[i_roi].startswith("JHU WM - "):
+
+                label_int = np.where(atlas_jhu_wm_labels == roi_names[i_roi])[0][0]
+                idx_roi = np.where(atlas_jhu_wm_vectorized == label_int)
+                loadings_mni[3][idx_roi] = loadings[i_roi][i_mode]
+
+            else:
+                print("Error: unrecognizable ROI:", roi_names[i_roi])
+                raise SystemExit
+
+        #  plot back to brain space
+        nifti_data_vectorized[i_mode] = np.apply_along_axis(resolve_overlap, axis=0, arr=loadings_mni)
+
+        nifti_data = np.zeros(reference_img.shape)
+        nifti_data[mask_idx] = nifti_data_vectorized[i_mode]
+
+        nifti_img = new_img_like(reference_img, nifti_data)
+        save(nifti_img, "mode_" + str(i_mode + 1) + ("zscored" if zscore else "") + ".nii.gz")
+
+
+def resolve_overlap(values):
+
+    min = np.min(values)
+    max = np.max(values)
+
+    if max == 0:
+        return min
+
+    return max
 
 
 def main():
@@ -284,11 +396,13 @@ def main():
 
     cca = CCA(n_components=3, scale=False).fit(X_deconf, Y_norm)
 
-    plot_cca_loadings(cca, DATA_DIR)
+    # plot_cca_loadings(cca, DATA_DIR)
 
-    plot_cca_component_comparison(cca)
+    # plot_cca_component_comparison(cca)
 
-    permutation_test(cca, X_deconf, Y_norm)
+    plot_loadings_to_brain(DATA_DIR, cca.x_loadings_, zscore=True)
+
+    # permutation_test(cca, X_deconf, Y_norm)
 
 
 if __name__ == "__main__":

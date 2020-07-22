@@ -174,15 +174,30 @@ def create_lesion_load_matrix_atlas(atlas, region_names, imgs):
     return lesion_load_matrix, region_names[region_labels]
 
 
-def create_lesion_load_matrix(atlas_dir, lesion_data, reference_img):
+def create_lesion_load_matrix(data_dir, lesion_data, reference_img, save_interm_labels=False):
 
     mask = get_mni_mask(reference_img)
+    atlas_dir = data_dir + "atlas/"
 
     atlas_cort_img, atlas_cort_labels = load_ho_cort_atlas(reference_img, mask)
     atlas_subcort_img, atlas_subcort_labels = load_ho_subcort_atlas(reference_img, mask)
     # atlas_cereb_img, atlas_cereb_labels = load_cereb_atlas(atlas_dir, reference_img, mask)
     atlas_cereb_img, atlas_cereb_labels = load_cereb_atlas_hammers(atlas_dir, reference_img, mask)
     atlas_wm_img, atlas_wm_labels = load_jhu_wm_atlas(atlas_dir, reference_img, mask)
+
+    if save_interm_labels:
+
+        np.save(atlas_dir + "processed/" + "ho_cortical_atlas_vectorized.npy", atlas_cort_img)
+        np.save(atlas_dir + "processed/" + "ho_cortical_atlas_region_labels.npy", atlas_cort_labels)
+
+        np.save(atlas_dir + "processed/" + "ho_subcortical_atlas_vectorized.npy", atlas_subcort_img)
+        np.save(atlas_dir + "processed/" + "ho_subcortical_atlas_region_labels.npy", atlas_subcort_labels)
+
+        np.save(atlas_dir + "processed/" + "cereb_atlas_vectorized.npy", atlas_cereb_img)
+        np.save(atlas_dir + "processed/" + "cereb_atlas_region_labels.npy", atlas_cereb_labels)
+
+        np.save(atlas_dir + "processed/" + "jhu_wm_atlas_vectorized.npy", atlas_wm_img)
+        np.save(atlas_dir + "processed/" + "jhu_wm_atlas_region_labels.npy", atlas_wm_labels)
 
     llm_cort, region_names_cort = create_lesion_load_matrix_atlas(atlas_cort_img, atlas_cort_labels, lesion_data)
     llm_subcort, region_names_subcort = create_lesion_load_matrix_atlas(atlas_subcort_img, atlas_subcort_labels, lesion_data)
@@ -204,9 +219,7 @@ def main():
 
     reference_img = load_img(DATA_DIR + "stroke-dataset/HallymBundang_lesionmaps_Bzdok_n1401/1001.nii.gz")
 
-    atlas_dir = DATA_DIR + "atlas/"
-
-    lesion_load_matrix, region_labels = create_lesion_load_matrix(atlas_dir, lesion_imgs, reference_img)
+    lesion_load_matrix, region_labels = create_lesion_load_matrix(DATA_DIR, lesion_imgs, reference_img, True)
 
     print(lesion_load_matrix.shape, region_labels.shape)
     np.save(DATA_DIR + "combined_lesions_load_matrix.npy", lesion_load_matrix)
