@@ -11,9 +11,10 @@ from scipy.stats import pearsonr
 from matplotlib import pylab as plt
 import itertools
 import seaborn as sns
-from nilearn.image import load_img, resample_to_img, new_img_like
+from nilearn.image import load_img, resample_to_img, new_img_like, smooth_img
 from nilearn.datasets import load_mni152_brain_mask
 from nibabel import save
+import rcca
 
 # To ensure reproducibility
 random.seed(39)
@@ -131,27 +132,36 @@ def deconfound(data_dir, data):
     return data_conf
 
 
-def plot_cca_loadings(cca, data_dir):
+def plot_cca_loadings(cca, data_dir, rcca):
 
     roi_names = np.load(data_dir + "combined_atlas_region_labels.npy")
     langauge_score_names = ['SVLT Immediate Recall', 'SVLT Delayed Recall', 'SVLT Recognition']
 
-    n_comp = cca.n_components
+    n_comp = cca.numCC if rcca else cca.n_components
+    x_loadings = cca.ws[0] if rcca else cca.x_loadings_
+    y_loadings = cca.ws[1] if rcca else cca.y_loadings_
+
+    # fixing directionality
+    if not rcca:
+        x_loadings[:, 0] *= -1
+        x_loadings[:, 2] *= -1
+        y_loadings[:, 0] *= -1
+        y_loadings[:, 2] *= -1
 
     for i_ccomp in range(n_comp):
 
         plt.figure(figsize=(50, 30))
         plt.xticks(rotation=90)
         plt.tight_layout()
-        plt.ylim(-1.2, 1.2)
-        plt.yticks(np.arange(-1.2, 1.3, 0.2))
+        # plt.ylim(-1.2, 1.2)
+        # plt.yticks(np.arange(-1.2, 1.3, 0.2))
         plt.axhline(0, color="black")
-        plt.axhline(-0.6, color="red")
-        plt.axhline(0.6, color="red")
+        # plt.axhline(-0.6, color="red")
+        # plt.axhline(0.6, color="red")
         plt.title('Canonical component %i: Atlas regions' % (i_ccomp + 1))
-        x_loadings = (cca.x_loadings_[:, i_ccomp] * -1) if i_ccomp in [0, 2] else cca.x_loadings_[:, i_ccomp]  # fixing directionality
-        plt.bar(roi_names, x_loadings)
-        plt.savefig('cca_x_%iof%i' % (i_ccomp + 1, n_comp), bbox_inches='tight')
+        plt.bar(roi_names, x_loadings[:, i_ccomp])
+        plt.savefig('cca_x_%iof%i.png' % (i_ccomp + 1, n_comp), bbox_inches='tight')
+        plt.savefig('cca_x_%iof%i.pdf' % (i_ccomp + 1, n_comp), bbox_inches='tight')
 
         plt.clf()
         plt.figure(figsize=(6, 5))
@@ -159,15 +169,9 @@ def plot_cca_loadings(cca, data_dir):
         plt.tight_layout()
         plt.axhline(0, color="black")
         plt.title('Canonical component %i: Language scores' % (i_ccomp + 1))
-        y_loadings = (cca.y_loadings_[:, i_ccomp] * -1) if i_ccomp in [0, 2] else cca.y_loadings_[:, i_ccomp]  # fixing directionality
-        plt.bar(langauge_score_names, y_loadings)
-        plt.savefig('cca_y_%iof%i' % (i_ccomp + 1, n_comp), bbox_inches='tight')
-
-        # plt.plot(cca.x_scores_[:, 1], Y_norm[:, 0], 'o', markersize=1)
-        # plt.title("Pearson Correlation: " + str(pearsonr(cca.x_scores_[:, 0], Y_norm[:, 2])[0]))
-        # plt.xlabel("Canonical variate 1 (brain side)")
-        # plt.ylabel("Language Recognition Impairment - Inverted score")
-        # plt.savefig('dd2')
+        plt.bar(langauge_score_names, y_loadings[:, i_ccomp])
+        plt.savefig('cca_y_%iof%i.png' % (i_ccomp + 1, n_comp), bbox_inches='tight')
+        plt.savefig('cca_y_%iof%i.pdf' % (i_ccomp + 1, n_comp), bbox_inches='tight')
 
 
 def permutation_test(actual_cca, X, Y):
@@ -225,34 +229,60 @@ def permutation_test(actual_cca, X, Y):
 
 def plot_cca_component_comparison(cca):
 
-    for side in ['Y']:
+    for i, j in itertools.combinations(np.arange(cca.n_components), 2):
 
-        for i, j in itertools.combinations(np.arange(cca.n_components), 2):
+        data_ax1 = cca.x_scores_[:, i]
+        data_ax2 = cca.x_scores_[:, j]
 
-            data_ax1 = cca.x_scores_[:, i] if side == 'X' else cca.y_scores_[:, i]
-            data_ax2 = cca.x_scores_[:, j] if side == 'X' else cca.y_scores_[:, j]
+        # fixing directionality
+        if i in [0, 2]:
+            data_ax1 = data_ax1 * -1
+        if j in [0, 2]:
+            data_ax2 = data_ax2 * -1
 
-            # fixing directionality
-            if i in [0, 2]:
-                data_ax1 = data_ax1 * -1
-            if j in [0, 2]:
-                data_ax2 = data_ax2 * -1
+        gridsize = 250
+        xlim = (-0.1, 0.1)
+        ylim = (-0.14, 0.1)
 
-            gridsize = 250 if side == 'X' else 35  # 35 for Y2-Y3
+        g = (sns.jointplot(data_ax1, data_ax2, kind="hex", xlim=xlim, ylim=ylim,
+                           joint_kws=dict(gridsize=gridsize))
+             .set_axis_labels('CC-'+str(i+1) + ' X', 'CC-'+str(j+1) + ' X'))
+        g.ax_joint.set_xticks([-0.1, -0.05, 0, 0.05, 0.1])
 
-            if not (i == 1 and j == 2):
-                continue
-            xlim = (-0.1, 0.1) if side == 'X' else (-0.15, 0.15)
-            ylim = (-0.12, 0.12) if side == 'X' else (-0.5, 0.5)
+        plt.subplots_adjust(left=0.15, right=0.90, top=0.95, bottom=0.10)
+        g.fig.suptitle("Pearson correlation coefficient: %.3E" % pearsonr(data_ax1, data_ax2)[0])
+        plt.colorbar().set_label("Number of samples")
+        plt.savefig("CCA_X" + str(i+1) + str(j+1) + ".png", dpi=600)
+        # plt.savefig("CCA_X" + str(i+1) + str(j+1) + ".pdf", dpi=600)
 
-            hexplot = (sns.jointplot(data_ax1, data_ax2, kind="hex", xlim=xlim, ylim=ylim,
-                                     joint_kws=dict(gridsize=gridsize))
-                       .set_axis_labels('CC-'+str(i+1) + ' ' + side, 'CC-'+str(j+1) + ' ' + side))
-            plt.subplots_adjust(left=0.15, right=0.80, top=0.85, bottom=0.15)
-            # cbar_ax = hexplot.fig.add_axes([.85, .25, .05, .4])  # x, y, width, height
-            plt.colorbar().set_label("Number of samples")
-            plt.tight_layout()
-            plt.savefig("CCA_" + side + str(i+1) + str(j+1))
+        # Cognitive scores
+
+        data_ax1 = cca.y_scores_[:, i]
+        data_ax2 = cca.y_scores_[:, j]
+
+        # fixing directionality
+        if i in [0, 2]:
+            data_ax1 = data_ax1 * -1
+        if j in [0, 2]:
+            data_ax2 = data_ax2 * -1
+
+        if i == 1 and j == 2:
+            gridsize = 35
+        else:
+            gridsize = 50
+
+        xlim = (-0.15, 0.15)
+        ylim = (-0.15, 0.15) if (i == 0 and j == 1) else (-0.5, 0.5)
+
+        g = (sns.jointplot(data_ax1, data_ax2, kind="hex", xlim=xlim, ylim=ylim,
+                           joint_kws=dict(gridsize=gridsize))
+             .set_axis_labels('CC-'+str(i+1) + ' Y', 'CC-'+str(j+1) + ' Y'))
+
+        plt.subplots_adjust(left=0.15, right=0.90, top=0.95, bottom=0.10)
+        g.fig.suptitle("Pearson correlation coefficient: %.3E" % pearsonr(data_ax1, data_ax2)[0])
+        plt.colorbar().set_label("Number of samples")
+        # plt.savefig("CCA_Y" + str(i+1) + str(j+1) + ".png", dpi=600)
+        plt.savefig("CCA_Y" + str(i+1) + str(j+1) + ".pdf", dpi=600)
 
 
 def normalize_scores(Y, zscore):
@@ -278,7 +308,7 @@ def get_mni_mask(reference_img):
 
 def plot_loadings_to_brain(data_dir, loadings, zscore=False):
 
-    # fixing directionality
+    # fixing directionality. loadings.shape == (161, 3)
     loadings[:, 0] *= -1
     loadings[:, 2] *= -1
 
@@ -287,62 +317,20 @@ def plot_loadings_to_brain(data_dir, loadings, zscore=False):
 
     reference_img = load_img(data_dir + "stroke-dataset/HallymBundang_lesionmaps_Bzdok_n1401/1001.nii.gz")
     mask_idx = get_mni_mask(reference_img)
-
     roi_names = np.load(data_dir + "combined_atlas_region_labels.npy")
 
-    nifti_data_vectorized = np.empty((loadings.shape[1], len(mask_idx[0])))
-
-    atlas_ho_cort_vectorized = np.load(data_dir + "atlas/processed/ho_cortical_atlas_vectorized.npy")
-    atlas_ho_cort_labels = np.load(data_dir + "atlas/processed/ho_cortical_atlas_region_labels.npy")
-
-    atlas_ho_subcort_vectorized = np.load(data_dir + "atlas/processed/ho_subcortical_atlas_vectorized.npy")
-    atlas_ho_subcort_labels = np.load(data_dir + "atlas/processed/ho_subcortical_atlas_region_labels.npy")
-
-    atlas_cereb_vectorized = np.load(data_dir + "atlas/processed/cereb_atlas_vectorized.npy")
-    atlas_cereb_labels = np.load(data_dir + "atlas/processed/cereb_atlas_region_labels.npy")
-
-    atlas_jhu_wm_vectorized = np.load(data_dir + "atlas/processed/jhu_wm_atlas_vectorized.npy")
-    atlas_jhu_wm_labels = np.load(data_dir + "atlas/processed/jhu_wm_atlas_region_labels.npy")
+    atlas_all_vectorized, labels_all = get_vectorized_atlas_data(data_dir)
 
     for i_mode in range(loadings.shape[1]):
 
-        loadings_mni = np.zeros((4, len(mask_idx[0])))
+        loadings_on_mni_vectorized = roi_to_voxels(atlas_all_vectorized, labels_all, mask_idx, roi_names,
+                                                   loadings[:, i_mode])
 
-        for i_roi in range(len(roi_names)):
-
-            if roi_names[i_roi].startswith("HO Cortical - "):
-
-                label_int = np.where(atlas_ho_cort_labels == roi_names[i_roi])[0][0]
-                idx_roi = np.where(atlas_ho_cort_vectorized == label_int)
-                loadings_mni[0][idx_roi] = loadings[i_roi][i_mode]
-
-            elif roi_names[i_roi].startswith("HO Subcortical - "):
-
-                label_int = np.where(atlas_ho_subcort_labels == roi_names[i_roi])[0][0]
-                idx_roi = np.where(atlas_ho_subcort_vectorized == label_int)
-                loadings_mni[1][idx_roi] = loadings[i_roi][i_mode]
-
-            elif roi_names[i_roi].startswith("Hammer's - "):
-
-                label_int = np.where(atlas_cereb_labels == roi_names[i_roi])[0][0]
-                idx_roi = np.where(atlas_cereb_vectorized == label_int)
-                loadings_mni[2][idx_roi] = loadings[i_roi][i_mode]
-
-            elif roi_names[i_roi].startswith("JHU WM - "):
-
-                label_int = np.where(atlas_jhu_wm_labels == roi_names[i_roi])[0][0]
-                idx_roi = np.where(atlas_jhu_wm_vectorized == label_int)
-                loadings_mni[3][idx_roi] = loadings[i_roi][i_mode]
-
-            else:
-                print("Error: unrecognizable ROI:", roi_names[i_roi])
-                raise SystemExit
-
-        #  plot back to brain space
-        nifti_data_vectorized[i_mode] = np.apply_along_axis(resolve_overlap, axis=0, arr=loadings_mni)
+        #  combine all atlases
+        nifti_data_vectorized = np.apply_along_axis(resolve_overlap, axis=0, arr=loadings_on_mni_vectorized)
 
         nifti_data = np.zeros(reference_img.shape)
-        nifti_data[mask_idx] = nifti_data_vectorized[i_mode]
+        nifti_data[mask_idx] = nifti_data_vectorized
 
         nifti_img = new_img_like(reference_img, nifti_data)
         save(nifti_img, "mode_" + str(i_mode + 1) + ("zscored" if zscore else "") + ".nii.gz")
@@ -350,13 +338,120 @@ def plot_loadings_to_brain(data_dir, loadings, zscore=False):
 
 def resolve_overlap(values):
 
-    min = np.min(values)
-    max = np.max(values)
+    min_value = np.min(values)
+    max_value = np.max(values)
 
-    if max == 0:
-        return min
+    if max_value == 0:
+        return min_value
 
-    return max
+    return max_value
+
+
+def create_modewise_brain_maps(x_scores_, x_loadings_):
+
+    recons_map = np.empty((x_loadings_.shape[1], x_scores_.shape[0], x_loadings_.shape[0]))
+
+    for i_mode in range(x_loadings_.shape[1]):
+
+        recons_map[i_mode] = np.matmul(x_scores_[:, i_mode].reshape(-1, 1), x_loadings_.T[i_mode].reshape(1, -1))
+
+    return recons_map
+
+
+def create_niftis_from_lesion_maps(recons_brain_map, data_dir, smooth_image=False, smooth_fwhm=10):
+    # recons_brain_map.shape == (3, 1154, 161)
+
+    reference_img = load_img(data_dir + "stroke-dataset/HallymBundang_lesionmaps_Bzdok_n1401/1001.nii.gz")
+    mask_idx = get_mni_mask(reference_img)
+    roi_names = np.load(data_dir + "combined_atlas_region_labels.npy")
+
+    atlas_all_vectorized, labels_all = get_vectorized_atlas_data(data_dir)
+
+    for i_mode in range(recons_brain_map.shape[0]):
+
+        tt=0
+
+        for i_patient in range(recons_brain_map.shape[1]):
+
+            loadings_on_mni_vectorized = roi_to_voxels(atlas_all_vectorized, labels_all, mask_idx,
+                                                       roi_names, recons_brain_map[i_mode][i_patient])
+
+            #  plot back to brain space
+            nifti_data_vectorized = np.apply_along_axis(resolve_overlap, axis=0, arr=loadings_on_mni_vectorized)
+
+            nifti_data = np.zeros(reference_img.shape)
+            nifti_data[mask_idx] = nifti_data_vectorized
+
+            nifti_img = new_img_like(reference_img, nifti_data)
+
+            if smooth_image:
+                nifti_img = smooth_img(nifti_img, smooth_fwhm)
+
+            save(nifti_img, "cca_dataset/mode_" + str(i_mode + 1) + "_patientID_" + str(i_patient) +
+                 ("_smooth_" + str(smooth_fwhm) if smooth_image else "") + ".nii.gz")
+
+            tt+=1
+
+            if tt==3:
+                break
+
+
+def roi_to_voxels(atlas_all_vectorized, labels_all, mask_idx, roi_names, roi_values):
+
+    loadings_on_mni_vectorized = np.zeros((len(atlas_all_vectorized), len(mask_idx[0])))  # 4 x 1862781 (one for each atlas)
+
+    for i_roi in range(len(roi_names)):
+
+        if roi_names[i_roi].startswith("HO Cortical - "):
+
+            label_int = np.where(labels_all[0] == roi_names[i_roi])[0][0]
+            idx_roi = np.where(atlas_all_vectorized[0] == label_int)
+            i_atlas = 0
+
+        elif roi_names[i_roi].startswith("HO Subcortical - "):
+
+            label_int = np.where(labels_all[1] == roi_names[i_roi])[0][0]
+            idx_roi = np.where(atlas_all_vectorized[1] == label_int)
+            i_atlas = 1
+
+        elif roi_names[i_roi].startswith("Hammer's - "):
+
+            label_int = np.where(labels_all[2] == roi_names[i_roi])[0][0]
+            idx_roi = np.where(atlas_all_vectorized[2] == label_int)
+            i_atlas = 2
+
+        elif roi_names[i_roi].startswith("JHU WM - "):
+
+            label_int = np.where(labels_all[3] == roi_names[i_roi])[0][0]
+            idx_roi = np.where(atlas_all_vectorized[3] == label_int)
+            i_atlas = 3
+
+        else:
+            print("Error: unrecognizable ROI:", roi_names[i_roi])
+            raise SystemExit
+
+        loadings_on_mni_vectorized[i_atlas][idx_roi] = roi_values[i_roi]
+
+    return loadings_on_mni_vectorized
+
+
+def get_vectorized_atlas_data(data_dir):
+
+    atlas_ho_cort_vectorized = np.load(data_dir + "atlas/processed/ho_cortical_atlas_vectorized.npy")
+    atlas_ho_subcort_vectorized = np.load(data_dir + "atlas/processed/ho_subcortical_atlas_vectorized.npy")
+    atlas_cereb_vectorized = np.load(data_dir + "atlas/processed/cereb_atlas_vectorized.npy")
+    atlas_jhu_wm_vectorized = np.load(data_dir + "atlas/processed/jhu_wm_atlas_vectorized.npy")
+
+    atlas_all_vectorized = [atlas_ho_cort_vectorized, atlas_ho_subcort_vectorized, atlas_cereb_vectorized, atlas_jhu_wm_vectorized]
+
+    atlas_ho_cort_labels = np.load(data_dir + "atlas/processed/ho_cortical_atlas_region_labels.npy")
+    atlas_ho_subcort_labels = np.load(data_dir + "atlas/processed/ho_subcortical_atlas_region_labels.npy")
+    atlas_cereb_labels = np.load(data_dir + "atlas/processed/cereb_atlas_region_labels.npy")
+    atlas_jhu_wm_labels = np.load(data_dir + "atlas/processed/jhu_wm_atlas_region_labels.npy")
+
+    labels_all = [atlas_ho_cort_labels, atlas_ho_subcort_labels, atlas_cereb_labels, atlas_jhu_wm_labels]
+
+    return atlas_all_vectorized, labels_all
 
 
 def main():
@@ -394,15 +489,26 @@ def main():
 
     # Y_deconf = deconfound(DATA_DIR, Y_norm)
 
-    cca = CCA(n_components=3, scale=False).fit(X_deconf, Y_norm)
+    r_cca = False
 
-    # plot_cca_loadings(cca, DATA_DIR)
+    if r_cca:
+        # X_deconf -= X_deconf.mean(axis=0)
+        # Y_norm -= Y_norm.mean(axis=0)
+
+        cca = rcca.CCA(kernelcca=False, numCC=3).train([X_deconf, Y_norm])
+    else:
+        cca = CCA(n_components=3, scale=False).fit(X_deconf, Y_norm)
+
+    # plot_cca_loadings(cca, DATA_DIR, rcca=r_cca)
 
     # plot_cca_component_comparison(cca)
 
-    plot_loadings_to_brain(DATA_DIR, cca.x_loadings_, zscore=True)
+    # plot_loadings_to_brain(DATA_DIR, cca.x_loadings_, zscore=True)
 
     # permutation_test(cca, X_deconf, Y_norm)
+
+    recons_brain_map = create_modewise_brain_maps(cca.x_scores_, cca.x_loadings_)  # (3, 1154, 161)
+    create_niftis_from_lesion_maps(recons_brain_map, DATA_DIR, smooth_image=True, smooth_fwhm=5)
 
 
 if __name__ == "__main__":
