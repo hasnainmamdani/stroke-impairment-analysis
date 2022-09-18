@@ -17,6 +17,8 @@ from scipy.stats.stats import pearsonr
 random.seed(39)
 np.random.seed(39)
 
+import sklearn
+
 
 def get_PC_data(data_dir):
     # Calculate 100 PC components
@@ -46,7 +48,8 @@ def log_and_zscore(data):
 
 def get_atlas_lesion_load_matrix(data_dir):
     # load lesion load matrix
-    return np.load(data_dir + "combined_lesions_load_matrix.npy")
+    return np.load(data_dir + "llm/combined_lesions_load_matrix.npy")
+    # return np.load(data_dir + "llm/combined_lesions_load_matrix_05102020.npy")
 
 
 def get_patient_scores(data_dir):

@@ -45,17 +45,45 @@ def get_atlas_lesion_load_matrix(data_dir):
 
 def get_patient_idx_with_no_previous_lesions(data_dir):
 
-    patient_select_df = pd.read_excel(data_dir + 'stroke-dataset/HallymBundang_MultiOutcome_25062020_selection_nopass.xlsx',
-                                      sep=',', skipinitialspace=True)
+    if not os.path.isfile(data_dir + 'patient_IDs_filtered.npy'):
 
-    idx = np.array(patient_select_df["ID"]) - 1001  # IDs start with 1001
+        patient_select_df = pd.read_excel(data_dir + 'stroke-dataset/HallymBundang_MultiOutcome_25062020_selection_nopass.xlsx',
+                                          sep=',', skipinitialspace=True)
 
-    idx = idx[:1154]  # corresponding brain images beyond this index are not available
+        idx = np.array(patient_select_df["ID"]) - 1001  # IDs start with 1001
+
+        idx = idx[:1154]  # corresponding brain images beyond this index are not available
+
+        np.save(data_dir + 'patient_IDs_filtered.npy', idx)
+        print("Created/saved patient ID list with no prior stroke lesions. Size:", idx.shape)
+
+    else:
+        idx = np.load(data_dir + 'patient_IDs_filtered.npy')
 
     return idx
 
 
+def lesion_volume_control(X):
+    """
+    this normalization process serves as a direct total lesion volume control (dTLVC)
+    """
+    X = X.astype(float)
+    for i in range(len(X)):
+        norm = np.linalg.norm(X[i])
+        if norm == 0:
+            print(i)
+            continue
+        X[i] = X[i] / norm
+
+    return X
+
+
 def get_patient_scores(data_dir, language_only=False, filter_idx=None):
+    """
+    :param language_only: use language scores only
+    :param filter_idx: For all cognitive scores. Language scores are already filtered.
+    :return:
+    """
 
     if language_only:
 
@@ -72,9 +100,12 @@ def get_patient_scores(data_dir, language_only=False, filter_idx=None):
                                    sep=',', skipinitialspace=True)
 
         score_columns = ["MMSE_total_zscore", "BostonNamingTest_zscore", "ReyComplexFigureTestCopy_zscore",
-                     "Seoul_Verbal_Learning_Test_immediate_recall_total_zscore", "TMT_A_Time_zscore_neg", "TMT_B_Time_zscore_neg"]
+                         "Seoul_Verbal_Learning_Test_immediate_recall_total_zscore", "TMT_A_Time_zscore_neg", "TMT_B_Time_zscore_neg"]
 
         scores_df = patient_df[score_columns]
+
+        assert filter_idx is not None, "must filter stroke patients with prior stroke lesions"
+        scores_df = scores_df.iloc[filter_idx].reset_index(drop=True)
 
         # preprocess variables - fill in the missing values by random sampling of valid values (simple random imputation)
         for score_name in scores_df.columns:
@@ -93,9 +124,6 @@ def get_patient_scores(data_dir, language_only=False, filter_idx=None):
     else:
         scores = np.load(data_dir + 'cognitive_scores.npy')
         print("Loaded cognitive scores. Size:", scores.shape)
-
-    if filter_idx is not None:
-        return scores[filter_idx]
 
     return scores
 
@@ -475,7 +503,7 @@ parser.add_argument("--mixup-mul-factor", nargs="*", type=int, default=[5])
 parser.add_argument("--data-dir", default="/Users/hasnainmamdani/Academics/McGill/thesis/data/")
 parser.add_argument("--result-dir", default="results/" + ("pc100_" if use_pc100 else "atlas_llm_"))
 parser.add_argument("--model", default="pls")
-parser.add_argument("--language_scores_only", default=True)
+parser.add_argument("--language_scores_only", default=False)
 args = parser.parse_args()
 print(args)
 
@@ -495,6 +523,7 @@ Y = get_patient_scores(DATA_DIR, args.language_scores_only, filter_idx)
 
 print("X.shape", X.shape, "Y.shape", Y.shape)
 
+X = lesion_volume_control(X)  # normalization
 
 if args.language_scores_only:
     SCORE_DOMAINS = ['SVLT Immediate Recall', 'SVLT Delayed Recall', 'SVLT Recognition']
@@ -502,10 +531,15 @@ else:
     SCORE_DOMAINS = ['Global Cognition', 'Language', 'Visuospatial Functioning', 'Memory',
                      'Information Processing Speed', 'Executive Functioning']
 
+zscore_Y = True if args.language_scores_only else False  # other (non-language) cognitive scores are already provided to us as zscores
+
 mixup_alphas = args.mixup_alpha
 mixup_mul_factors = args.mixup_mul_factor
 
 without_mixup = True if (mixup_alphas[0] == 0.01 and mixup_mul_factors[0] == 5) else False
 
+# run_with_mixup(X, Y, args.model, mixup_alphas, mixup_mul_factors, without_mixup=without_mixup, result_dir=args.result_dir,
+#                log_X=not use_pc100, zscore_X=True, zscore_Y=zscore_Y)
+
 run_with_mixup(X, Y, args.model, mixup_alphas, mixup_mul_factors, without_mixup=without_mixup, result_dir=args.result_dir,
-               log_X=not use_pc100, zscore_X=True, zscore_Y=True)
+               log_X=False, zscore_X=True, zscore_Y=zscore_Y)
